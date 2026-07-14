@@ -18,7 +18,7 @@ export const Colors = {
 // 출처: docs/design-system.md - "1-2. 카테고리 색" 섹션
 // 보딩패스, 스탬프 등 장르가 표시되는 곳이면 어디서나 이 색을 가져다 쓴다.
 export const CategoryColors = {
-  전시: '#2B5FD9',
+  전시: '#1B63C6',
   '클래식·무용': '#6A5ACD',
   콘서트: '#7FD4C1',
   연극: '#D97757',
@@ -35,6 +35,16 @@ export const CategoryIcons = {
   콘서트: 'headphones',
   연극: 'drama-masks',
   뮤지컬: 'microphone-outline',
+} as const;
+
+// 카테고리(장르)별 영문 표시 이름
+// 출처: docs/boarding-pass-single.png 시안 (카드 상단에 EXHIBITION처럼 영문 대문자로 표시)
+export const CategoryLabels = {
+  전시: 'EXHIBITION',
+  '클래식·무용': 'CLASSIC & DANCE',
+  콘서트: 'CONCERT',
+  연극: 'THEATER',
+  뮤지컬: 'MUSICAL',
 } as const;
 
 // 라이트/다크 모드 화면 색 토큰

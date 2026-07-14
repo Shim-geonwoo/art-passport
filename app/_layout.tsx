@@ -1,4 +1,5 @@
 import {
+  NotoSansKR_300Light,
   NotoSansKR_400Regular,
   NotoSansKR_500Medium,
   NotoSansKR_700Bold,
@@ -26,6 +27,7 @@ export default function RootLayout() {
   // 앱 전체에서 쓸 Noto Sans KR 폰트를 한 번만 불러온다.
   // (docs/design-system.md "2. 타이포그래피" - 폰트: 전체 Noto Sans KR)
   const [fontsLoaded] = useFonts({
+    NotoSansKR_300Light,
     NotoSansKR_400Regular,
     NotoSansKR_500Medium,
     NotoSansKR_700Bold,

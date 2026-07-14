@@ -7,4 +7,7 @@ export const Fonts = {
   regular: 'NotoSansKR_400Regular', // 굵기 400 - Value, Body, Caption
   medium: 'NotoSansKR_500Medium', // 굵기 500 - Display, Header, Label, Title
   bold: 'NotoSansKR_700Bold', // 굵기 700 - 로고, 쿠폰 배너처럼 크게 강조할 때
+  // Noto Sans KR엔 정확히 "DemiLight"라는 이름의 굵기가 없어서,
+  // 가장 가까운 300(Light)을 대신 쓴다. (docs/design-system.md 8-1 보딩패스 값 굵기)
+  demiLight: 'NotoSansKR_300Light',
 } as const;
