@@ -15,15 +15,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useEffect, useRef, useState } from 'react';
-import {
-  LayoutChangeEvent,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { Animated, Easing, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CategoryColors, CategoryIcons, CategoryLabels, Colors, Genre, Theme } from '@/constants/colors';
@@ -34,8 +26,31 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const BOARDING_WINDOW_MS = 3 * ONE_DAY_MS;
 
-// 카드를 겹쳐 쌓을 때, 뒤 카드가 앞으로 얼마나 삐져나와 보일지(px)
-const STACK_PEEK_HEIGHT = 64;
+// 카드 스택 한 칸의 크기 (docs/design-system.md 8-1: 270 x 380)
+const CARD_WIDTH = 270;
+const CARD_HEIGHT = 380;
+
+// 스택에서 카드가 있을 수 있는 자리(앞/중간/뒤)별 top 값. index 0 = 맨 앞.
+// 뒤 카드일수록 top이 작아서(=더 위) 앞 카드 위로 살짝 삐져나와 보인다.
+const STACK_TOP_BY_POSITION = [48, 24, 0];
+
+// 자리별 그림자 값. 앞으로 올수록 그림자가 진하고 커진다.
+const STACK_SHADOW_BY_POSITION = [
+  { shadowOpacity: 0.25, shadowRadius: 16, elevation: 12 }, // 맨 앞
+  { shadowOpacity: 0.15, shadowRadius: 8, elevation: 6 }, // 중간
+  { shadowOpacity: 0.08, shadowRadius: 4, elevation: 3 }, // 맨 뒤
+];
+
+const STACK_ANIMATION_DURATION_MS = 350;
+
+// 카드가 4장 이상이면(자리가 3개보다 많으면) 정의 안 된 자리는 "맨 뒤" 값을 그대로 재사용한다
+function getStackSlot(position: number) {
+  const clampedIndex = Math.min(position, STACK_TOP_BY_POSITION.length - 1);
+  return {
+    top: STACK_TOP_BY_POSITION[clampedIndex],
+    ...STACK_SHADOW_BY_POSITION[clampedIndex],
+  };
+}
 
 // 이 화면(보딩패스 탭) 전용 배경색.
 // constants/colors.ts의 공통 Theme.background(크림/#1A1A1C)와는 다르게,
@@ -196,23 +211,55 @@ export default function BoardingPassScreen() {
     .filter((booking) => isWithinBoardingWindow(booking.showAt, now))
     .sort((a, b) => a.showAt.getTime() - b.showAt.getTime());
 
-  // 카드 한 장의 실제 높이를 측정해서, 뒤 카드를 얼마나 겹칠지 계산하는 데 쓴다
-  const [cardHeight, setCardHeight] = useState(0);
-  // 카드마다 스크롤 컨테이너 안에서의 y 좌표를 기억해둔다 (검색 결과로 스크롤 이동할 때 쓴다)
-  const cardPositionsRef = useRef<Record<string, number>>({});
+  // 스택에서 카드가 쌓인 순서. index 0 = 맨 앞 카드.
+  // 처음엔 관람일이 가까운 순서를 그대로 앞-뒤 순서로 쓴다.
+  const [frontOrder, setFrontOrder] = useState<string[]>(() =>
+    visibleBookings.map((booking) => booking.id)
+  );
 
-  function handleCardWrapLayout(bookingId: string, index: number, event: LayoutChangeEvent) {
-    const { y, height } = event.nativeEvent.layout;
-    cardPositionsRef.current[bookingId] = y;
-    if (index === 0 && cardHeight === 0) {
-      setCardHeight(height);
+  // 카드마다 "지금 스택에서 몇 번째 자리인지"를 담는 애니메이션 값을 하나씩 준비해둔다.
+  // ref에 담아서 한 번만 만들고 계속 재사용한다 (렌더될 때마다 새로 만들면 애니메이션이 끊긴다).
+  const stackAnimsRef = useRef<Record<string, Animated.Value>>({});
+  visibleBookings.forEach((booking) => {
+    if (!stackAnimsRef.current[booking.id]) {
+      const initialPosition = frontOrder.indexOf(booking.id);
+      stackAnimsRef.current[booking.id] = new Animated.Value(initialPosition === -1 ? 0 : initialPosition);
     }
+  });
+
+  // 카드를 탭했을 때 실행: 그 카드를 맨 앞으로, 나머지는 한 칸씩 뒤로 민다.
+  // zIndex(누가 위에 그려질지)는 즉시 바꾸고, 위치/그림자만 350ms 동안 부드럽게 움직인다.
+  function bringCardToFront(bookingId: string) {
+    if (frontOrder[0] === bookingId) {
+      return; // 이미 맨 앞이면 아무것도 하지 않는다
+    }
+
+    const rest = frontOrder.filter((id) => id !== bookingId);
+    const nextOrder = [bookingId, ...rest];
+
+    nextOrder.forEach((id, nextPosition) => {
+      const previousPosition = frontOrder.indexOf(id);
+      if (previousPosition === nextPosition) {
+        return; // 자리가 안 바뀐 카드는 애니메이션할 필요 없다
+      }
+      const animValue = stackAnimsRef.current[id];
+      if (!animValue) {
+        return;
+      }
+      Animated.timing(animValue, {
+        toValue: nextPosition,
+        duration: STACK_ANIMATION_DURATION_MS,
+        easing: Easing.inOut(Easing.ease),
+        useNativeDriver: false, // top/그림자는 레이아웃 속성이라 네이티브 드라이버를 못 쓴다
+      }).start();
+    });
+
+    setFrontOrder(nextOrder);
   }
 
   // 검색창 상태: 검색 아이콘을 누르면 열리고, 글자를 입력하면 콘텐츠명/장소로 찾는다
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const scrollViewRef = useRef<ScrollView>(null);
 
   function handleToggleSearch() {
     if (isSearchOpen) {
@@ -224,7 +271,7 @@ export default function BoardingPassScreen() {
   }
 
   // 검색어가 바뀔 때마다 콘텐츠명(eventTitle) 또는 장소(venueName)에 포함되는
-  // 첫 번째 보딩패스를 찾아서, 그 카드가 보이는 위치까지 스크롤을 이동시킨다
+  // 첫 번째 보딩패스를 찾아서, 탭했을 때와 똑같이 맨 앞으로 올려준다.
   useEffect(() => {
     const query = searchQuery.trim().toLowerCase();
     if (query === '') {
@@ -237,11 +284,13 @@ export default function BoardingPassScreen() {
         booking.venueName.toLowerCase().includes(query)
     );
 
-    const matchedY = matchedBooking ? cardPositionsRef.current[matchedBooking.id] : undefined;
-    if (matchedY !== undefined) {
-      scrollViewRef.current?.scrollTo({ y: Math.max(matchedY - 16, 0), animated: true });
+    if (matchedBooking) {
+      bringCardToFront(matchedBooking.id);
     }
-  }, [searchQuery, visibleBookings]);
+    // searchQuery가 바뀔 때만 실행한다 (bringCardToFront/visibleBookings는 매 렌더 새로 만들어지는
+    // 함수/배열이라 deps에 넣으면 검색어가 그대로여도 계속 다시 실행돼버린다)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery]);
 
   // 보여줄 티켓이 없어도, 화면 타이틀(ART PASS)과 검색 아이콘은 계속 보여준다
   // ("안내 문구 없이 빈 화면"은 카드 목록에만 해당하는 규칙이다)
@@ -260,6 +309,15 @@ export default function BoardingPassScreen() {
     );
   }
 
+  // 애니메이션 보간(interpolate)에 쓸 "자리별 값" 배열. 카드 수만큼 만들되 최소 2칸은 있어야 한다
+  // (interpolate는 최소 2개의 입력/출력 값 쌍이 필요하다).
+  const slotCount = Math.max(visibleBookings.length, 2);
+  const stackPositions = Array.from({ length: slotCount }, (_, i) => i);
+  const topRange = stackPositions.map((position) => getStackSlot(position).top);
+  const shadowOpacityRange = stackPositions.map((position) => getStackSlot(position).shadowOpacity);
+  const shadowRadiusRange = stackPositions.map((position) => getStackSlot(position).shadowRadius);
+  const elevationRange = stackPositions.map((position) => getStackSlot(position).elevation);
+
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: screenBackground }]} edges={['top']}>
       <BoardingPassHeader
@@ -270,23 +328,59 @@ export default function BoardingPassScreen() {
         onToggleSearch={handleToggleSearch}
         onChangeSearch={setSearchQuery}
       />
-      <ScrollView ref={scrollViewRef} contentContainerStyle={styles.scrollContent}>
-        {visibleBookings.map((booking, index) => {
-          // 첫 번째 카드는 그대로, 두 번째 카드부터는 위로 끌어올려서 앞 카드 뒤에 겹치게 한다
-          const overlapStyle =
-            index > 0 && cardHeight > 0 ? { marginTop: -(cardHeight - STACK_PEEK_HEIGHT) } : null;
 
-          return (
-            <View
-              key={booking.id}
-              style={[styles.cardWrap, { zIndex: index }, overlapStyle]}
-              onLayout={(event) => handleCardWrapLayout(booking.id, index, event)}
-            >
-              <BoardingPassCard booking={booking} />
-            </View>
-          );
-        })}
-      </ScrollView>
+      {/* 카드 스택 영역: 화면 가운데에 카드 3장이 겹쳐 쌓인 고정 자리를 만든다 */}
+      <View style={styles.stackArea}>
+        <View style={styles.stackContainer}>
+          {visibleBookings.map((booking) => {
+            const categoryColor = CategoryColors[booking.genre];
+            const animValue = stackAnimsRef.current[booking.id];
+            const stackPosition = frontOrder.indexOf(booking.id);
+
+            // 하나의 애니메이션 값(0,1,2...)에서 top/그림자를 동시에 보간해서 뽑아낸다
+            // -> 카드가 앞으로 올수록 위치와 그림자가 같이 움직인다
+            const animatedTop = animValue.interpolate({ inputRange: stackPositions, outputRange: topRange });
+            const animatedShadowOpacity = animValue.interpolate({
+              inputRange: stackPositions,
+              outputRange: shadowOpacityRange,
+            });
+            const animatedShadowRadius = animValue.interpolate({
+              inputRange: stackPositions,
+              outputRange: shadowRadiusRange,
+            });
+            const animatedElevation = animValue.interpolate({
+              inputRange: stackPositions,
+              outputRange: elevationRange,
+            });
+
+            return (
+              <Animated.View
+                key={booking.id}
+                style={[
+                  styles.cardShadowWrap,
+                  {
+                    // 안드로이드는 elevation 그림자를 이 배경의 불투명한 모양대로 그리기 때문에,
+                    // 카드와 같은 색을 배경으로 깔아준다 (카드가 그 위를 정확히 덮는다)
+                    backgroundColor: categoryColor,
+                    top: animatedTop,
+                    // zIndex는 애니메이션 없이 바로 바뀐다 -> 탭하자마자 그 카드가 맨 위로 그려진다
+                    zIndex: stackPosition === -1 ? 0 : visibleBookings.length - stackPosition,
+                    shadowOpacity: animatedShadowOpacity,
+                    shadowRadius: animatedShadowRadius,
+                    elevation: animatedElevation,
+                  },
+                ]}
+              >
+                {/* 카드 전체를 누를 수 있게 한다. 뒤 카드는 앞 카드에 아랫부분이 가려져 있어서,
+                    실제로는 눈에 보이는 윗부분(삐져나온 부분)만 눌린다 */}
+                <Pressable onPress={() => bringCardToFront(booking.id)}>
+                  <BoardingPassCard booking={booking} />
+                </Pressable>
+              </Animated.View>
+            );
+          })}
+        </View>
+      </View>
     </SafeAreaView>
   );
 }
@@ -444,16 +538,29 @@ const styles = StyleSheet.create({
     fontSize: 20,
   },
 
-  scrollContent: {
-    flexGrow: 1, // 내용이 화면보다 짧을 때도 justifyContent가 작동하도록 한다
-    alignItems: 'center', // 카드 폭이 270 고정이라 화면 가운데로 정렬한다
+  // 카드 스택을 화면 가운데(위아래/좌우)로 오게 하는 바깥 영역
+  stackArea: {
+    flex: 1,
+    alignItems: 'center',
     justifyContent: 'center', // 보딩패스를 화면 위쪽이 아니라 중간쯤으로 내린다
-    paddingVertical: 32, // 2xl. 카드가 화면을 꽉 채울 땐 위아래 최소 여백 역할
+  },
+  // 카드가 절대좌표(top)로 쌓이는 실제 자리. 맨 앞 카드 기준(top 48 + 카드높이 380)으로 크기를 잡는다
+  stackContainer: {
+    width: CARD_WIDTH,
+    height: STACK_TOP_BY_POSITION[0] + CARD_HEIGHT,
   },
 
-  // 카드를 감싸는 겹침 단위. 두 번째 장부터 marginTop을 음수로 줘서 겹친다
-  cardWrap: {
-    // 스타일은 대부분 인라인으로 계산해서 넣는다 (zIndex, marginTop)
+  // 카드 한 장을 감싸는 그림자 전용 껍데기.
+  // 카드 자체(styles.card)는 overflow:'hidden'이 있어서 그 위에 그림자를 직접 그리면 잘려 안 보인다.
+  // 그래서 overflow가 없는 이 바깥 View에 그림자(shadow*, elevation)를 걸고, 안에 카드를 넣는다.
+  cardShadowWrap: {
+    position: 'absolute',
+    left: 0,
+    width: CARD_WIDTH,
+    height: CARD_HEIGHT,
+    borderRadius: 10, // 카드와 같은 radius를 줘야 그림자 실루엣도 카드 모양과 맞는다
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
   },
 
   // 보딩패스 카드 한 장 (270 x 380, radius 10)
