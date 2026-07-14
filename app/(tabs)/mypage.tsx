@@ -6,6 +6,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Colors } from '@/constants/colors';
+import { Fonts } from '@/constants/fonts';
 
 export default function MyPageScreen() {
   return (
@@ -23,8 +24,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   title: {
+    fontFamily: Fonts.medium,
     fontSize: 22,
-    fontWeight: '500',
     color: Colors.textPrimary,
   },
 });

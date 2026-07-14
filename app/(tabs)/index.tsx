@@ -8,6 +8,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Colors } from '@/constants/colors';
+import { Fonts } from '@/constants/fonts';
 
 export default function BoardingPassScreen() {
   return (
@@ -26,8 +27,8 @@ const styles = StyleSheet.create({
   },
   title: {
     // docs/design-system.md 타이포그래피 - "Title" 규칙 (22px / 500 / text-primary)
+    fontFamily: Fonts.medium,
     fontSize: 22,
-    fontWeight: '500',
     color: Colors.textPrimary,
   },
 });
