@@ -5,13 +5,13 @@
 export const Colors = {
   navy: '#1B2A4A', // Primary - 여권 표지, 헤더, 강조
   blue: '#3D5A8A', // Secondary - 버튼, 링크, 강조 텍스트
-  cream: '#F5F1E8', // Background - 화면 전체 배경
-  surface: '#FFFFFF', // 카드/목록의 흰 배경
+  cream: '#F5F1E8', // 다크모드 밝은 텍스트, 카테고리 탭 미선택 포인트 등에 소량 사용 (화면 배경 아님 — 아래 참고)
+  surface: '#FFFFFF', // Background - 화면 전체 배경 + 카드/목록의 흰 배경
   gold: '#C9A961', // Accent - 스탬프, 뱃지 포인트 (특별한 순간에만 소량 사용)
   textPrimary: '#1B2A4A', // 본문 진한 글씨
   textSecondary: '#6B6B6B', // 보조/라벨 회색 글씨
   textOnColor: '#FFFFFF', // 컬러 배경 위 흰 글씨
-  borderHairline: '#E3DBC8', // 크림 배경 위 카드 구분선
+  borderHairline: '#E3DBC8', // 흰 배경 위 카드 구분선
 } as const;
 
 // 카테고리(장르)별 색상 토큰
@@ -52,7 +52,7 @@ export const CategoryLabels = {
 // 카테고리 색(CategoryColors)은 두 모드에서 같은 값을 쓰므로 여기 포함하지 않는다.
 export const Theme = {
   light: {
-    background: Colors.cream, // 화면 배경
+    background: Colors.surface, // 화면 배경. 보딩패스 화면과 통일해 흰색으로 쓴다 (이전엔 cream이었으나 폐기)
     emptyCellBackground: '#ECEAE3', // 카드/스탬프 빈칸 배경 (아주 연한 그레이)
     text: Colors.textPrimary, // 기본 텍스트
     textSecondary: Colors.textSecondary, // 보조 텍스트
@@ -66,3 +66,13 @@ export const Theme = {
     dashedBorder: 'rgba(255, 255, 255, 0.25)', // border-on-color 토큰 재사용
   },
 } as const;
+
+// 화면에서 쓰는 라이트/다크 색 묶음의 구조 (Theme.light / Theme.dark 공통 필드).
+// 컴포넌트에 theme를 넘길 때 이 타입으로 받으면 라이트/다크 둘 다 받을 수 있다.
+export type ThemeColors = {
+  background: string;
+  emptyCellBackground: string;
+  text: string;
+  textSecondary: string;
+  dashedBorder: string;
+};

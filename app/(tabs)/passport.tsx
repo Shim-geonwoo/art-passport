@@ -1,79 +1,73 @@
 // 여권(Passport) 화면 - 스탬프 페이지
 //
-// docs/passport-stamp-full.png (9칸 다 채움 + 쿠폰)
-// docs/passport-stamp-progress.png (진행 중 + 빈 칸은 점선) 시안과
-// docs/design-system.md 의 "스탬프 페이지 규칙", "1-3 라이트/다크 모드"를 참고했다.
-//
-// 규칙 요약 (docs/data-structure.md):
-// - 여권 한 페이지 = 스탬프 9칸 (3x3 그리드). 항상 9칸을 다 그린다.
-// - 관람완료한 예매 하나 = 스탬프 하나. 채운 칸만큼만 스탬프, 나머지는 점선 빈 칸.
-// - 9칸을 다 채우면 쿠폰 1장(다음 예매 10% 할인)이 발급되고, 쿠폰 배너가 뜬다.
-// - 아직 실제 데이터/이미지가 없어서, 아래 더미 데이터로만 화면을 채운다.
+// Figma "스탬프 페이지" 시안(다크 배경 #2C2C2E, 3x3 카드 그리드 + 쿠폰/리워드 영역)을 따라 만든다.
+// 규칙 요약 (docs/data-structure.md, docs/data-flow.md):
+// - 여권 한 페이지 = 스탬프 9칸(3x3). 항상 9칸을 그리고, 채운 칸만 스탬프·나머지는 점선 빈 칸.
+// - 관람완료한 예매 하나 = 스탬프 하나 (data/dummy-bookings.ts의 deriveStamps에서 파생).
+// - 9칸을 다 채우면 쿠폰 1장이 발급되고, "WE GOT A COUPON!" + "리워드함으로 가기" 버튼이 활성화된다.
+// - "리워드함으로 가기"를 누르면 여권의 다음 페이지로 넘어간다 (스탬프는 계속 다음 장으로 이어짐).
 
 import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { router } from 'expo-router';
 import { useState } from 'react';
-import { LayoutChangeEvent, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Rect } from 'react-native-svg';
 
-import { CategoryColors, CategoryIcons, Colors, Genre, Theme } from '@/constants/colors';
+import { CategoryColors, CategoryIcons, Colors, Theme } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
+import { useBookings } from '@/contexts/bookings';
+import { deriveStamps, Stamp, STAMPS_PER_PAGE } from '@/data/dummy-bookings';
+import { formatDate } from '@/data/schedule';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 // 여권 한 페이지에 들어가는 스탬프 칸 개수 (3x3 고정, 항상 이만큼 그린다)
-const TOTAL_STAMP_SLOTS = 9;
-// 스탬프 칸 비율 (가로 / 세로). 1보다 작으면 세로가 조금 더 긴 카드가 된다
+const TOTAL_STAMP_SLOTS = STAMPS_PER_PAGE; // 9
+// 스탬프 칸 비율 (가로 / 세로). Figma 카드 120x150 = 0.8 (세로가 조금 더 긴 카드)
 const STAMP_ASPECT_RATIO = 0.8;
 // 칸과 칸 사이 가로 간격
 const GRID_GAP = 8;
-// 스탬프 칸 모서리 둥글기 (design-system.md radius-md)
-const STAMP_RADIUS = 12;
+// 스탬프 칸 모서리 둥글기. Figma 카드엔 radius가 없어서 각지게(0) 둔다
+const STAMP_RADIUS = 0;
 
-// 스탬프 1개(=관람완료한 예매 1건)를 표현하는 더미 데이터 모양
-type Stamp = {
-  id: string;
-  title: string; // 공연/전시 제목
-  genre: Genre; // 장르 (카테고리 색 + 아이콘을 결정한다)
-  venueName: string; // 관람 장소
-  watchedDate: string; // 관람일 (YYYY.MM.DD)
-};
-
-// 데모 스위치: 지금은 진짜 데이터가 없어서, 아래 return 값을 바꿔가며
-// 시안 2가지(진행 중 / 다 채움) 상태를 둘 다 확인할 수 있게 해뒀다.
-// 'progress' = 스탬프 6개 (빈 칸 3개, 점선으로 표시)
-// 'full'     = 스탬프 9개 (쿠폰 배너 표시)
-function getDemoState(): 'progress' | 'full' {
-  return 'progress'; // <- 'full'로 바꾸면 쿠폰 배너 상태를 볼 수 있다
-}
-const DEMO_STATE = getDemoState();
-
-// 진행 중 상태용 더미 스탬프 6개
-const DUMMY_STAMPS_PROGRESS: Stamp[] = [
-  { id: '1', title: 'Portes Ouvertes', genre: '전시', venueName: '리움미술관', watchedDate: '2026.07.13' },
-  { id: '2', title: '백조의 호수', genre: '클래식·무용', venueName: '예술의전당', watchedDate: '2026.06.28' },
-  { id: '3', title: 'Summer Sound Fest', genre: '콘서트', venueName: '올림픽공원', watchedDate: '2026.06.15' },
-  { id: '4', title: '햄릿', genre: '연극', venueName: '대학로 예술극장', watchedDate: '2026.05.30' },
-  { id: '5', title: '레베카', genre: '뮤지컬', venueName: '샤롯데씨어터', watchedDate: '2026.05.10' },
-  { id: '6', title: 'Portes Ouvertes II', genre: '전시', venueName: '리움미술관', watchedDate: '2026.04.22' },
-];
-
-// 다 채운 상태용 더미 스탬프 9개 (위 6개 + 3개 더)
-const DUMMY_STAMPS_FULL: Stamp[] = [
-  ...DUMMY_STAMPS_PROGRESS,
-  { id: '7', title: 'Portes Ouvertes III', genre: '전시', venueName: '리움미술관', watchedDate: '2026.04.02' },
-  { id: '8', title: '호두까기 인형', genre: '클래식·무용', venueName: '예술의전당', watchedDate: '2026.03.20' },
-  { id: '9', title: '라이온킹', genre: '뮤지컬', venueName: '블루스퀘어', watchedDate: '2026.03.01' },
-];
-
-const DUMMY_STAMPS = DEMO_STATE === 'full' ? DUMMY_STAMPS_FULL : DUMMY_STAMPS_PROGRESS;
+// Figma 다크 배경색 (이 화면 전용). 라이트 모드에서는 공통 흰 배경을 쓴다
+const PASSPORT_BG_DARK = '#2C2C2E';
+// 카드 하단 띠의 어두운 글씨/아이콘 색 (Figma: 공연장명 #2C2C2E, 장르 아이콘 검정). 날짜만 흰색.
+const STAMP_FOOTER_DARK = '#2C2C2E';
+// "리워드함으로 가기" 버튼 색 (Figma #8CB0E2, 밝은 파랑). 두 모드 공통.
+const REWARD_BUTTON_BG = '#8CB0E2';
 
 export default function PassportScreen() {
   // 폰의 라이트/다크 설정을 읽어서, 그에 맞는 색 묶음을 고른다
   const colorScheme = useColorScheme();
   const theme = colorScheme === 'dark' ? Theme.dark : Theme.light;
+  // 이 화면 배경: 다크는 Figma 색(#2C2C2E), 라이트는 공통 흰색
+  const screenBackground = colorScheme === 'dark' ? PASSPORT_BG_DARK : Colors.surface;
 
-  // 그리드의 실제 가로 폭을 측정해서 칸 하나의 정확한 px 크기를 계산한다.
+  // "지금" 시각을 화면이 처음 열릴 때 한 번만 고정한다
+  const [now] = useState(() => new Date());
+
+  // 지금 보고 있는 여권 페이지 (1부터). 이전/다음 버튼이나 "리워드함으로 가기"로 바뀐다.
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // "리워드함으로 가기"를 눌러 이미 쿠폰을 챙긴 페이지들. 이 페이지에선 쿠폰 배너를 다시 안 띄운다.
+  const [claimedPages, setClaimedPages] = useState<number[]>([]);
+
+  // 중앙 데이터에서 관람완료 예매를 스탬프로 파생받고, 현재 페이지 것만 고른다.
+  // (deriveStamps가 각 스탬프에 page/slotIndex를 이미 계산해 준다)
+  const { bookings } = useBookings();
+  const allStamps = deriveStamps(bookings, now);
+  // 전체 여권 페이지 수 (스탬프 9개당 1페이지, 최소 1페이지)
+  const totalPages = Math.max(1, Math.ceil(allStamps.length / STAMPS_PER_PAGE));
+  const pageStamps = allStamps.filter((stamp) => stamp.page === currentPage);
+
+  // 이번 페이지 9칸을 다 채웠는지
+  const isPageComplete = pageStamps.length >= TOTAL_STAMP_SLOTS;
+  // 쿠폰/리워드 영역을 보여줄지: 이 페이지가 꽉 찼고, 아직 이 페이지의 쿠폰을 안 챙겼을 때만
+  const showReward = isPageComplete && !claimedPages.includes(currentPage);
+
+  // 그리드의 실제 가로 폭을 측정해서 칸 하나의 정확한 px 크기를 계산한다
   // (점선 테두리를 SVG로 정확히 그리려면 %가 아니라 실제 px 값이 필요하다)
   const [gridWidth, setGridWidth] = useState(0);
   const cellWidth = gridWidth > 0 ? (gridWidth - GRID_GAP * 2) / 3 : 0;
@@ -83,20 +77,34 @@ export default function PassportScreen() {
     setGridWidth(event.nativeEvent.layout.width);
   }
 
-  // 9칸을 항상 채운다: 더미 데이터가 있는 칸은 스탬프(Stamp), 없는 칸은 null(빈 칸)
+  // "리워드함으로 가기": (1) 이 페이지 쿠폰을 챙긴 것으로 표시(-> 배너 다시 안 뜸)
+  //                    (2) 다음 여권 페이지로 넘김
+  //                    (3) 마이페이지의 리워드함으로 이동
+  function handleClaimReward() {
+    setClaimedPages((prev) => (prev.includes(currentPage) ? prev : [...prev, currentPage]));
+    setCurrentPage((page) => Math.min(page + 1, totalPages));
+    router.push('/mypage');
+  }
+
+  // 여권 페이지 넘기기 (이전/다음). 1페이지 ~ totalPages 사이로만 이동한다.
+  function goToPrevPage() {
+    setCurrentPage((page) => Math.max(1, page - 1));
+  }
+  function goToNextPage() {
+    setCurrentPage((page) => Math.min(totalPages, page + 1));
+  }
+
+  // 9칸을 항상 채운다: 스탬프가 있는 칸은 Stamp, 없는 칸은 null(빈 칸)
   const slots: (Stamp | null)[] = Array.from(
     { length: TOTAL_STAMP_SLOTS },
-    (_, index) => DUMMY_STAMPS[index] ?? null
+    (_, index) => pageStamps.find((stamp) => stamp.slotIndex === index) ?? null
   );
   // 3칸씩 잘라서 3줄로 만든다 (3x3 그리드)
   const rows = [slots.slice(0, 3), slots.slice(3, 6), slots.slice(6, 9)];
 
-  // 9칸을 다 채웠는지 여부 -> 쿠폰 배너를 보여줄지 결정
-  const isPageComplete = DUMMY_STAMPS.length >= TOTAL_STAMP_SLOTS;
-
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top']}>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: screenBackground }]} edges={['top']}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* 상단: ART PORT 로고 + 검색 아이콘 */}
         <View style={styles.header}>
           <Text style={[styles.logo, { color: theme.text }]}>ART PORT</Text>
@@ -106,7 +114,10 @@ export default function PassportScreen() {
         {/* 스탬프 3x3 그리드 (항상 9칸: 스탬프 + 점선 빈 칸) */}
         <View onLayout={handleGridLayout}>
           {rows.map((row, rowIndex) => (
-            <View key={rowIndex} style={styles.gridRow}>
+            // 줄 "사이"에만 47px 간격을 준다 (마지막 줄 뒤에는 안 붙여서, 리워드 영역과의 간격은 따로 제어)
+            <View
+              key={rowIndex}
+              style={[styles.gridRow, rowIndex < rows.length - 1 && styles.gridRowGap]}>
               {row.map((stamp, colIndex) =>
                 stamp ? (
                   <StampCard key={stamp.id} stamp={stamp} width={cellWidth} height={cellHeight} />
@@ -116,7 +127,6 @@ export default function PassportScreen() {
                     width={cellWidth}
                     height={cellHeight}
                     borderColor={theme.dashedBorder}
-                    backgroundColor={theme.emptyCellBackground}
                   />
                 )
               )}
@@ -124,67 +134,83 @@ export default function PassportScreen() {
           ))}
         </View>
 
-        {/* 9칸을 다 채웠을 때만 쿠폰 배너 표시 */}
-        {isPageComplete && (
-          <View style={styles.couponBanner}>
-            <Text style={styles.couponText}>WE GOT A COUPON!</Text>
-            <View style={styles.couponButton}>
-              <Text style={styles.couponButtonText}>리워드함으로 가기</Text>
-            </View>
-          </View>
-        )}
-      </ScrollView>
+        {/* 쿠폰 문구 + "리워드함으로 가기" 버튼.
+            페이지가 꽉 안 찼거나 이미 챙긴 경우엔 "숨기되 자리는 그대로 유지"한다(opacity 0 + 클릭 불가).
+            그래야 아래 페이지 번호가 리워드 유무와 상관없이 항상 같은 위치에 고정된다. */}
+        <View
+          style={[styles.rewardArea, !showReward && styles.rewardAreaHidden]}
+          pointerEvents={showReward ? 'auto' : 'none'}>
+          <Text style={[styles.couponText, { color: theme.text }]}>WE GOT A COUPON!</Text>
+          <Pressable style={styles.rewardButton} onPress={handleClaimReward}>
+            <Text style={styles.rewardButtonText}>리워드함으로 가기</Text>
+          </Pressable>
+        </View>
 
-      {/* 페이지 번호: 스크롤 영역 밖에 둬서, 항상 화면 맨 아래 · 탭 바 바로 위에 고정된다 */}
-      <View style={[styles.pageNumberBar, { backgroundColor: theme.background }]}>
-        <Text style={[styles.pageNumber, { color: theme.textSecondary }]}>01</Text>
-      </View>
+        {/* 페이지 넘기기: ‹ 01 › — 이전/다음 버튼으로 여권 장을 넘겨본다 (양 끝에서는 흐리게 비활성) */}
+        <View style={styles.pageNav}>
+          <Pressable onPress={goToPrevPage} disabled={currentPage <= 1} hitSlop={8}>
+            <Ionicons
+              name="chevron-back"
+              size={20}
+              color={theme.textSecondary}
+              style={currentPage <= 1 ? styles.pageArrowDisabled : undefined}
+            />
+          </Pressable>
+          <Text style={[styles.pageNumber, { color: theme.textSecondary }]}>
+            {String(currentPage).padStart(2, '0')}
+          </Text>
+          <Pressable onPress={goToNextPage} disabled={currentPage >= totalPages} hitSlop={8}>
+            <Ionicons
+              name="chevron-forward"
+              size={20}
+              color={theme.textSecondary}
+              style={currentPage >= totalPages ? styles.pageArrowDisabled : undefined}
+            />
+          </Pressable>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
-// 채워진 스탬프 칸 하나: 포스터 자리 + 하단 정보 띠(날짜 + 장소)
+// 채워진 스탬프 칸 하나: 포스터 자리(위) + 정보 띠(아래: 장르 아이콘 + 날짜 + 공연장)
 function StampCard({ stamp, width, height }: { stamp: Stamp; width: number; height: number }) {
-  const categoryColor = CategoryColors[stamp.genre];
-  const genreIconName = CategoryIcons[stamp.genre];
+  const { event, showAt } = stamp.booking;
+  const categoryColor = CategoryColors[event.genre];
+  const genreIconName = CategoryIcons[event.genre];
 
   return (
-    <View style={[styles.stampCell, { width, height }]}>
-      {/* 포스터 이미지 자리. 실제 이미지가 없어서 카테고리 색 박스로 대체 */}
-      <View style={[styles.posterPlaceholder, { backgroundColor: categoryColor }]}>
+    <View style={[styles.stampCell, { width, height, backgroundColor: categoryColor }]}>
+      {/* 포스터 프레임: 카드 너비만큼의 정사각형 창 (Figma 120x120, overflow hidden).
+          실제 포스터 이미지가 없어서 색 배경 + 아이콘으로 대체한다 (포스터=스탬프) */}
+      <View style={[styles.posterFrame, { height: width }]}>
         <Ionicons name="image-outline" size={28} color={Colors.textOnColor} style={styles.posterIcon} />
       </View>
 
-      {/* 하단 정보 띠: 날짜는 왼쪽, 장소는 오른쪽. 장르 아이콘은 날짜 위에 살짝 겹친다 */}
-      <View style={[styles.stampFooter, { backgroundColor: categoryColor }]}>
-        <View style={styles.stampDateWrap}>
-          <MaterialCommunityIcons
-            name={genreIconName}
-            size={16}
-            color={Colors.textOnColor}
-            style={styles.stampGenreIcon}
-          />
-          <Text style={styles.stampDate}>{stamp.watchedDate}</Text>
-        </View>
+      {/* 하단 정보 띠 (Figma 120x30): 공연장명=우상단(어두움), 장르 아이콘+날짜=좌하단(날짜 흰색) */}
+      <View style={styles.stampFooter}>
         <Text style={styles.stampVenue} numberOfLines={1}>
-          {stamp.venueName}
+          {event.venueName}
         </Text>
+        <View style={styles.stampDateRow}>
+          <MaterialCommunityIcons name={genreIconName} size={16} color={STAMP_FOOTER_DARK} />
+          <Text style={styles.stampDate}>{formatDate(showAt)}</Text>
+        </View>
       </View>
     </View>
   );
 }
 
-// 안 채워진 스탬프 칸 하나: 점선 테두리만 있는 빈 자리
+// 안 채워진 스탬프 칸 하나: 점선 테두리만 있고 내부는 채우지 않는(투명) 빈 자리.
+// 배경색을 주지 않으므로 점선 안으로 화면 배경이 그대로 비친다 (fill 없음).
 function EmptyStampSlot({
   width,
   height,
   borderColor,
-  backgroundColor,
 }: {
   width: number;
   height: number;
   borderColor: string;
-  backgroundColor: string;
 }) {
   // 그리드 폭을 아직 측정하기 전(최초 렌더링 찰나)에는 크기가 0이라 그리지 않는다
   if (width === 0 || height === 0) {
@@ -194,9 +220,8 @@ function EmptyStampSlot({
   const strokeWidth = 1.5;
 
   return (
-    <View style={[styles.emptyStampCell, { width, height, backgroundColor }]}>
-      {/* View의 borderStyle: 'dashed'는 모서리가 둥글면(borderRadius) 일부 기기에서
-          점선이 깨져 보이는 문제가 있어서, SVG로 점선 테두리를 직접 그린다 */}
+    <View style={[styles.emptyStampCell, { width, height }]}>
+      {/* View의 borderStyle:'dashed'는 일부 기기에서 점선이 깨져 보여서, SVG로 점선 테두리를 직접 그린다 */}
       <Svg width={width} height={height} style={StyleSheet.absoluteFill}>
         <Rect
           x={strokeWidth / 2}
@@ -219,11 +244,8 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
-  scroll: {
-    flex: 1, // 남은 세로 공간을 다 차지해서, 페이지 번호 바가 항상 맨 아래로 밀리게 한다
-  },
   scrollContent: {
-    paddingHorizontal: 16, // 화면 좌우 여백 (design-system.md 레이아웃 기준)
+    paddingHorizontal: 16, // 화면 좌우 여백
     paddingBottom: 24, // xl
   },
 
@@ -237,7 +259,7 @@ const styles = StyleSheet.create({
   },
   logo: {
     fontFamily: Fonts.bold,
-    fontSize: 22, // Title 크기 토큰 재사용
+    fontSize: 20, // Figma: ART PORT 20
     letterSpacing: 1,
   },
 
@@ -245,50 +267,57 @@ const styles = StyleSheet.create({
   gridRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 20, // 줄 사이 간격
+  },
+  // 줄과 줄 사이 세로 간격.
+  // Figma 원본은 47이지만, 그대로 쓰면 폰 화면에서 세로 스크롤이 생겨서 37로 줄였다.
+  gridRowGap: {
+    marginBottom: 37,
   },
 
   // 채워진 스탬프 칸
   stampCell: {
     borderRadius: STAMP_RADIUS,
-    overflow: 'hidden', // 안의 색 박스가 둥근 모서리 밖으로 안 나가게
+    overflow: 'hidden', // 안의 포스터가 모서리 밖으로 안 나가게
   },
-  posterPlaceholder: {
-    flex: 1, // 하단 정보 띠를 뺀 나머지 공간을 다 채운다
+  // 포스터 프레임: 정사각형 창 (height는 카드 너비로 인라인 지정 -> Figma 120x120)
+  posterFrame: {
+    width: '100%',
+    overflow: 'hidden', // 실제 포스터가 들어오면 창 밖으로 넘치는 부분을 잘라낸다
     alignItems: 'center',
     justifyContent: 'center',
   },
   posterIcon: {
     opacity: 0.6, // "포스터가 들어올 자리"라는 느낌만 주는 워터마크 아이콘
   },
+  // 하단 정보 띠: 카드 높이의 나머지(≈20%, Figma 30px). 요소는 절대좌표로 코너에 배치
   stampFooter: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    paddingHorizontal: 8, // sm
-    paddingVertical: 6,
-  },
-  stampDateWrap: {
+    flex: 1,
     position: 'relative',
-    paddingLeft: 14, // 장르 아이콘이 겹쳐 들어올 자리
   },
-  stampGenreIcon: {
+  // 공연장명: 우상단 (Figma left 68 / top 122)
+  stampVenue: {
     position: 'absolute',
-    left: -2,
-    top: -10, // 날짜 텍스트 위로 살짝 올라와 겹치도록 배치
+    right: 4,
+    top: 3,
+    maxWidth: '55%', // 이름이 길면 날짜 쪽으로 안 넘치게 폭 제한 + 줄임표
+    fontFamily: Fonts.bold,
+    fontSize: 10, // Figma: 공연장명 10, Bold
+    color: STAMP_FOOTER_DARK, // 공연장명은 어두운색
+    textAlign: 'right',
+  },
+  // 장르 아이콘 + 날짜: 좌하단 한 줄 (Figma 아이콘 left 3 / 날짜 left 3, bottom 쪽)
+  stampDateRow: {
+    position: 'absolute',
+    left: 3,
+    bottom: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
   },
   stampDate: {
-    fontFamily: Fonts.regular,
-    fontSize: 11, // Label 크기
-    color: Colors.textOnColor,
-  },
-  stampVenue: {
-    fontFamily: Fonts.medium,
-    fontSize: 11,
-    color: Colors.textOnColor,
-    marginLeft: 8, // sm: 날짜와 겹치지 않게
-    flexShrink: 1, // 장소 이름이 길면 줄임표(...)로 잘리게
-    textAlign: 'right',
+    fontFamily: Fonts.demiLight,
+    fontSize: 12, // Figma: 날짜 12
+    color: Colors.textOnColor, // 날짜는 흰색
   },
 
   // 안 채워진 스탬프 칸 (점선 테두리는 SVG로 그린다)
@@ -297,41 +326,48 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
 
-  // 9칸 완성 쿠폰 배너
-  couponBanner: {
-    backgroundColor: Colors.navy,
-    borderRadius: 16, // radius-card
-    paddingVertical: 24, // xl
-    paddingHorizontal: 20, // lg
+  // 9칸 완성 시 쿠폰 + 리워드 영역 (Figma: 네이비 카드 없이 텍스트 + 밝은 파랑 버튼)
+  rewardArea: {
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: 37, // 그리드 줄 간격(37)과 같은 리듬으로 띄워서 WE 문구가 카드와 안 겹치게
+    gap: 20, // WE 문구 ↔ 리워드 버튼 사이
+  },
+  // 리워드 영역을 안 보이게 하되 자리(높이)는 그대로 유지해, 페이지 번호 위치를 고정한다
+  rewardAreaHidden: {
+    opacity: 0,
   },
   couponText: {
     fontFamily: Fonts.bold,
-    fontSize: 20,
-    letterSpacing: 0.5,
-    color: Colors.textOnColor,
-    marginBottom: 16, // md
+    fontSize: 30, // Figma: WE GOT A COUPON! 30
+    textAlign: 'center',
   },
-  couponButton: {
-    backgroundColor: Colors.gold, // 골드는 "특별한 순간"에만 소량 사용하는 포인트 색
-    borderRadius: 20, // radius-pill
-    paddingVertical: 10,
+  rewardButton: {
+    backgroundColor: REWARD_BUTTON_BG,
+    borderRadius: 10, // Figma 버튼 radius 10
+    paddingVertical: 4,
     paddingHorizontal: 20,
   },
-  couponButtonText: {
+  rewardButtonText: {
     fontFamily: Fonts.medium,
-    fontSize: 14,
-    color: Colors.navy,
+    fontSize: 12, // Figma: 리워드함으로 가기 12
+    color: Colors.textPrimary, // 밝은 파랑 위 어두운 글씨 (Figma: black)
   },
 
-  // 하단 페이지 번호 바 (스크롤 밖, 탭 바 바로 위)
-  pageNumberBar: {
+  // 페이지 넘기기 (‹ 01 ›)
+  pageNav: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    justifyContent: 'center',
+    gap: 16, // md
+    marginTop: 32, // 리워드 버튼(또는 그리드)과 페이지 번호 사이 간격
   },
   pageNumber: {
     fontFamily: Fonts.regular,
-    fontSize: 12, // Caption 크기
+    fontSize: 12,
+    textAlign: 'center',
+    minWidth: 24, // 01/02 자리 폭을 고정해 화살표가 덜 흔들리게
+  },
+  pageArrowDisabled: {
+    opacity: 0.3, // 양 끝(1페이지/마지막 페이지)에서 비활성 표시
   },
 });

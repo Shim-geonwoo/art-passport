@@ -12,6 +12,8 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
 
+import { BookingsProvider } from '@/contexts/bookings';
+import { ThemePreferenceProvider } from '@/contexts/theme-preference';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export const unstable_settings = {
@@ -22,8 +24,6 @@ export const unstable_settings = {
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
-
   // 앱 전체에서 쓸 Noto Sans KR 폰트를 한 번만 불러온다.
   // (docs/design-system.md "2. 타이포그래피" - 폰트: 전체 Noto Sans KR)
   const [fontsLoaded] = useFonts({
@@ -44,6 +44,23 @@ export default function RootLayout() {
   if (!fontsLoaded) {
     return null;
   }
+
+  // 테마 설정(시스템/라이트/다크)을 앱 전체에 제공한다. 실제 색 스킴 계산은 그 안쪽에서 한다.
+  // 예매 취소 상태(BookingsProvider)도 앱 전체에 둔다. 마이페이지에서 취소한 예매가
+  // 보딩패스 탭에서도 바로 사라져야 하므로, 두 탭을 함께 감싸는 여기가 제자리다.
+  return (
+    <ThemePreferenceProvider>
+      <BookingsProvider>
+        <RootLayoutNav />
+      </BookingsProvider>
+    </ThemePreferenceProvider>
+  );
+}
+
+// ThemePreferenceProvider 안에서 실제 색 스킴을 읽어 화면을 구성한다.
+// (useColorScheme이 테마 설정 값을 참고하므로 반드시 Provider 안에서 호출해야 한다)
+function RootLayoutNav() {
+  const colorScheme = useColorScheme();
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>

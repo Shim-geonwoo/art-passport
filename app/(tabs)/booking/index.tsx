@@ -13,7 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { GenreBadge } from '@/components/genre-badge';
 import { CategoryColors, Colors, Genre, Theme } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
-import { DUMMY_EVENTS, EventItem } from '@/data/dummy-events';
+import { DUMMY_EVENTS, EventItem, formatEventSchedule } from '@/data/dummy-events';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 // 상단 카테고리 탭 목록 (design-system.md 1-2 순서 그대로)
@@ -31,10 +31,10 @@ export default function BookingListScreen() {
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top']}>
       {/* 상단 카테고리 탭 */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.tabRow}>
+      {/* 5개 탭이 항상 화면 폭 안에 들어오게 그냥 한 줄(View)로 놓는다.
+          예전엔 가로 ScrollView였는데, 탭이 폭을 아주 조금 넘겨서 미세하게 스크롤되는 게
+          오히려 불편했다. 좁은 화면에서도 안 넘치도록 각 탭은 flexShrink로 줄어들 수 있게 해뒀다. */}
+      <View style={styles.tabRow}>
         {GENRES.map((genre) => (
           <CategoryTab
             key={genre}
@@ -44,12 +44,18 @@ export default function BookingListScreen() {
             onPress={() => setSelectedGenre(genre)}
           />
         ))}
-      </ScrollView>
+      </View>
 
       {/* 선택된 카테고리의 공연 목록 (세로 스크롤) */}
-      <ScrollView contentContainerStyle={styles.listContent}>
+      {/* flex:1로 탭 바를 뺀 나머지 세로 공간을 차지하고, 그 안에서만 스크롤되게 한다 */}
+      <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
         {filteredEvents.map((event, index) => (
-          <EventCard key={event.id} event={event} showDivider={index !== filteredEvents.length - 1} />
+          <EventCard
+            key={event.id}
+            event={event}
+            theme={theme}
+            showDivider={index !== filteredEvents.length - 1}
+          />
         ))}
       </ScrollView>
     </SafeAreaView>
@@ -78,7 +84,12 @@ function CategoryTab({
           borderColor: selected ? CategoryColors[genre] : theme.dashedBorder,
         },
       ]}>
-      <Text style={[styles.tabText, { color: selected ? Colors.textOnColor : Colors.textSecondary }]}>
+      {/* '클래식·무용'처럼 긴 이름이 두 줄로 넘어가지 않게 한 줄 고정 + 아주 좁은 화면에서만 살짝 축소 */}
+      <Text
+        style={[styles.tabText, { color: selected ? Colors.textOnColor : Colors.textSecondary }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.8}>
         {genre}
       </Text>
     </Pressable>
@@ -86,7 +97,15 @@ function CategoryTab({
 }
 
 // 공연 카드 한 장: 좌측 포스터 자리 + 우측 공연 정보. 누르면 상세 화면으로 이동한다
-function EventCard({ event, showDivider }: { event: EventItem; showDivider: boolean }) {
+function EventCard({
+  event,
+  theme,
+  showDivider,
+}: {
+  event: EventItem;
+  theme: { text: string; textSecondary: string; dashedBorder: string };
+  showDivider: boolean;
+}) {
   return (
     <Link href={{ pathname: '/booking/[id]', params: { id: event.id } }} asChild>
       <Pressable>
@@ -97,16 +116,18 @@ function EventCard({ event, showDivider }: { event: EventItem; showDivider: bool
           </View>
 
           <View style={styles.cardInfo}>
-            <Text style={styles.cardTitle} numberOfLines={1}>
+            <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={1}>
               {event.title}
             </Text>
             <GenreBadge genre={event.genre} />
-            <Text style={styles.cardMeta}>{event.showAt}</Text>
-            <Text style={styles.cardMeta}>{event.venueName}</Text>
-            <Text style={styles.cardPrice}>{event.price.toLocaleString('ko-KR')}원</Text>
+            <Text style={[styles.cardMeta, { color: theme.textSecondary }]}>{formatEventSchedule(event)}</Text>
+            <Text style={[styles.cardMeta, { color: theme.textSecondary }]}>{event.venueName}</Text>
+            <Text style={[styles.cardPrice, { color: theme.text }]}>
+              {event.price.toLocaleString('ko-KR')}원
+            </Text>
           </View>
         </View>
-        {showDivider && <View style={styles.divider} />}
+        {showDivider && <View style={[styles.divider, { backgroundColor: theme.dashedBorder }]} />}
       </Pressable>
     </Link>
   );
@@ -120,14 +141,17 @@ const styles = StyleSheet.create({
   // 상단 카테고리 탭
   tabRow: {
     flexDirection: 'row',
-    gap: 8, // sm
+    alignItems: 'flex-start', // 탭이 세로로 stretch돼서 길쭉한 막대가 되는 걸 막는다
+    gap: 6,
     paddingHorizontal: 16,
     paddingVertical: 16, // md
   },
   tab: {
+    flexShrink: 1, // 5개가 화면 폭을 넘길 것 같으면 스스로 줄어든다 (가로 스크롤 방지)
     borderRadius: 20, // radius-pill
     borderWidth: 1,
-    paddingHorizontal: 16,
+    // 좌우 여백을 16 -> 10으로 줄였다. 5개 탭을 스크롤 없이 한 화면에 넣기 위한 값
+    paddingHorizontal: 10,
     paddingVertical: 8,
   },
   tabText: {
@@ -136,6 +160,9 @@ const styles = StyleSheet.create({
   },
 
   // 공연 목록
+  list: {
+    flex: 1, // 탭 바를 뺀 나머지 세로 공간을 차지 (겹침 방지 + 목록만 스크롤)
+  },
   listContent: {
     paddingHorizontal: 16,
     paddingBottom: 24, // xl
@@ -165,21 +192,17 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     fontFamily: Fonts.medium,
-    fontSize: 16,
-    color: Colors.textPrimary,
+    fontSize: 16, // color는 theme.text를 인라인으로 적용 (라이트/다크 대응, design-system.md 2-4)
   },
   cardMeta: {
     fontFamily: Fonts.regular,
-    fontSize: 12, // Caption
-    color: Colors.textSecondary,
+    fontSize: 12, // Caption. color는 theme.textSecondary 인라인 적용
   },
   cardPrice: {
     fontFamily: Fonts.medium,
-    fontSize: 13,
-    color: Colors.textPrimary,
+    fontSize: 13, // color는 theme.text 인라인 적용
   },
   divider: {
-    height: 0.5,
-    backgroundColor: Colors.borderHairline,
+    height: 0.5, // color(theme.dashedBorder)는 인라인 적용 — border-hairline의 라이트/다크 짝
   },
 });

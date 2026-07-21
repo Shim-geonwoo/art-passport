@@ -11,7 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { GenreBadge } from '@/components/genre-badge';
 import { CategoryColors, Colors, Theme } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
-import { DUMMY_EVENTS } from '@/data/dummy-events';
+import { DUMMY_EVENTS, formatEventSchedule } from '@/data/dummy-events';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export default function BookingDetailScreen() {
@@ -20,6 +20,15 @@ export default function BookingDetailScreen() {
   const theme = colorScheme === 'dark' ? Theme.dark : Theme.light;
 
   const event = DUMMY_EVENTS.find((item) => item.id === id);
+
+  // "예매하기"를 누르면 결제(checkout) 화면으로 넘어간다. 실제 예매 생성은 거기서 한다.
+  // checkout은 고정 경로라, 어떤 공연인지는 쿼리 파라미터(id)로 넘긴다.
+  function handleBook() {
+    if (!event) {
+      return;
+    }
+    router.push({ pathname: '/booking/checkout', params: { id: event.id } });
+  }
 
   // 잘못된 id로 들어온 경우(더미 데이터에 없음) 안내만 하고 뒤로가기를 유도한다
   if (!event) {
@@ -49,7 +58,7 @@ export default function BookingDetailScreen() {
           <GenreBadge genre={event.genre} />
 
           <View style={styles.infoList}>
-            <LabelValue label="날짜" value={event.showAt} theme={theme} />
+            <LabelValue label="날짜" value={formatEventSchedule(event)} theme={theme} />
             <LabelValue label="장소" value={event.venueName} theme={theme} />
             <LabelValue label="가격" value={`${event.price.toLocaleString('ko-KR')}원`} theme={theme} />
           </View>
@@ -58,7 +67,7 @@ export default function BookingDetailScreen() {
 
       {/* 하단 고정 예매하기 버튼 */}
       <View style={[styles.bottomBar, { backgroundColor: theme.background }]}>
-        <Pressable style={styles.bookButton}>
+        <Pressable style={styles.bookButton} onPress={handleBook}>
           <Text style={styles.bookButtonText}>예매하기</Text>
         </Pressable>
       </View>
