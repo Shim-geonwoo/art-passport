@@ -17,7 +17,9 @@
 - docs/design-concept.md   : 디자인 컨셉 3가지
 - docs/design-system.md    : 색상·타이포·간격·컴포넌트 규칙
 - docs/design-system.html  : 디자인 시스템 시각 가이드 (브라우저로 확인용)
-- docs/data-structure.md   : 데이터베이스 구조
+- docs/data-structure.md   : 데이터베이스 구조 (테이블·칸 정의)
+- docs/data-flow.md        : 상태 연쇄 설계 (예매→보딩패스→스탬프→취소 흐름, 데모 bookings 세트)
+- docs/content-examples.md : 카테고리별 예시 콘텐츠 50개 (events 카탈로그)
 - docs/boarding-pass-single.png   : 보딩패스 시안 (카드 1장)
 - docs/boarding-pass-stack.png    : 보딩패스 시안 (여러 장 겹침, 월렛)
 - docs/passport-stamp-full.png    : 스탬프 페이지 시안 (9칸 완성 + 쿠폰)
@@ -25,10 +27,12 @@
 
 ## 디자인 원칙 (design-system.md 요약)
 - 3대 컨셉: Glanceable(한눈에 읽힘) / Stack & Collect(쌓고 수집) / Living Pass(상태 변화).
-- 기본색: navy #1B2A4A, cream #F5F1E8(배경), gold #C9A961(포인트, 소량만).
-- 카테고리색: 전시 #2B5FD9, 클래식·무용 #6A5ACD, 콘서트 #7FD4C1, 연극 #D97757, 뮤지컬 #C9599E.
-- 아이콘은 실선(outline)으로 통일.
-- 카드 radius 16px, 여백은 4의 배수.
+- 기본색: navy #1B2A4A, surface #FFFFFF(배경, 모든 탭 공통), gold #C9A961(포인트, 소량만).
+  cream #F5F1E8은 더 이상 배경색이 아니다 — 다크모드 텍스트/탭 포인트로만 소량 사용.
+- 카테고리색: 전시 #1B63C6, 클래식·무용 #6A5ACD, 콘서트 #7FD4C1, 연극 #D97757, 뮤지컬 #C9599E.
+- 아이콘은 실선(outline)으로 통일 (보딩패스 비행기 아이콘만 의도적 예외).
+- 카드 radius: 보딩패스류 10px, 일반 정보 카드(쿠폰 배너 등) 16px. 여백은 4의 배수.
+- 자세한 근거와 실측값은 docs/design-system.md, docs/design-components.md 참고.
 
 ## 핵심 기능 규칙 (data-structure.md 요약)
 - 여권 한 페이지 = 스탬프 9칸(3x3). 페이지는 계속 다음 장으로 이어짐.

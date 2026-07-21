@@ -106,6 +106,11 @@ BoardingPassCard 여러 장을 애플 월렛처럼 겹쳐 쌓는 컨테이너.
   | 선택 안 됨 | `cream` | `text-secondary` | `dashedBorder`(라이트 `#E3DBC8` / 다크 `rgba(255,255,255,.25)`) |
 - **타이포**: 14px Medium(500)
 - **배치**: 가로 스크롤(`ScrollView horizontal`), 탭 사이 간격 `sm`(8)
+- **주의**: `ScrollView`의 `contentContainerStyle`에 `alignItems: 'flex-start'`를
+  꼭 줘야 한다. 안 주면 가로 스크롤 안에서 각 탭이 세로로 늘어나 버린다.
+- **cream 배경 관련 참고**: 화면 배경 자체는 `surface`(흰)로 통일됐지만
+  (design-system.md 2-4), 이 탭의 미선택 배경만은 `cream`을 그대로 쓴다 —
+  흰 화면 위에서 살짝 따뜻한 톤으로 도드라져 보이게 하는 의도적 포인트 사용.
 
 ---
 

@@ -52,14 +52,15 @@
 |---|---|---|
 | `navy` (Primary) | 여권 표지, 헤더, 강조, 버튼 배경 | `#1B2A4A` |
 | `blue` (Secondary) | 버튼, 링크, 강조 텍스트 | `#3D5A8A` |
-| `cream` (Background) | 화면 전체 배경 (보딩패스 화면 제외 — 2-4 참고) | `#F5F1E8` |
-| `surface` | 카드/목록의 흰 배경, 탭 바 배경 | `#FFFFFF` |
+| `surface` (Background) | 화면 전체 배경 + 카드/목록의 흰 배경, 탭 바 배경 | `#FFFFFF` |
+| `cream` | 화면 배경 아님. 다크모드 밝은 텍스트, 카테고리 탭 미선택 칩처럼 소량 포인트로만 사용 | `#F5F1E8` |
 | `gold` (Accent) | 로고, 스탬프 테두리, 뱃지 포인트 | `#C9A961` |
 | `text-primary` | 본문 진한 글씨 | `#1B2A4A` |
-| `text-secondary` | 보조/라벨 회색 글씨 (크림·흰 배경 위) | `#6B6B6B` |
+| `text-secondary` | 보조/라벨 회색 글씨 (흰 배경 위) | `#6B6B6B` |
 | `text-on-color` | 카테고리색 등 컬러 배경 위 흰 글씨 | `#FFFFFF` |
 
-> 골드는 "특별한 순간"(스탬프, 뱃지, 로고)에만 소량. 남색+크림이 화면의 90%.
+> 골드는 "특별한 순간"(스탬프, 뱃지, 로고)에만 소량. 남색+흰색이 화면의 90%.
+> **cream은 더 이상 배경색이 아니다** (2-4 변경 이력 참고). 화면 배경은 항상 `surface`(흰)다.
 
 ### 2-2. 카테고리 색 (Category) — 각 1개
 
@@ -101,20 +102,26 @@
 
 | 용도 | 라이트 모드 | 다크 모드 |
 |---|---|---|
-| 화면 배경 (일반 화면: 예매, 여권, 마이페이지) | cream `#F5F1E8` | `#1A1A1C` |
+| 화면 배경 (모든 탭 공통) | `surface` 흰 `#FFFFFF` | `#1A1A1C` |
 | 카드/스탬프 빈칸 배경 | 아주 연한 그레이 `#ECEAE3` | 시안 원본 다크 톤 `#242426` |
-| 기본 텍스트 | navy `#1B2A4A` | 밝은 `#F5F1E8` |
+| 기본 텍스트 | navy `#1B2A4A` | 밝은 cream `#F5F1E8` |
 | 카테고리 색 | 동일 (양쪽 공통) | 동일 (양쪽 공통) |
 
 > 코드 위치: `constants/colors.ts`의 `Theme.light` / `Theme.dark`.
-
-**예외 — 보딩패스 화면 배경.** 보딩패스 탭(`app/(tabs)/index.tsx`)만
-위 표를 따르지 않고 라이트 `#FFFFFF` / 다크 `#2C2C2C`를 쓴다. 애플
-월렛처럼 카드가 배경과 확실히 분리돼 보이도록 하기 위한 의도적 예외다.
-새 화면을 만들 때는 기본적으로 위 표(크림/`#1A1A1C`)를 따르고,
-보딩패스류(카드가 화면의 주인공인 화면)만 이 예외를 검토한다.
-
 > 카테고리 색은 두 모드에서 같은 값을 쓴다. 배경과 텍스트만 모드에 따라 바뀐다.
+
+**변경 이력 — 화면 배경 통일 (2026.07.15).** 원래 이 표의 라이트 모드 화면
+배경은 `cream #F5F1E8`이었고, 보딩패스 화면만 `#FFFFFF`을 쓰는 예외였다.
+실제로 예매 탭을 만들어보니 보딩패스(흰색)와 예매 탭(크림)이 나란히 보일 때
+색이 어긋나 보인다는 문제가 확인돼, **크림 배경 자체를 없애고 모든 탭을
+흰색으로 통일**했다 (`Theme.light.background`를 `Colors.cream` →
+`Colors.surface`로 수정). 다크모드 값(`#1A1A1C`)은 그대로 유지한다.
+보딩패스 화면의 다크모드 배경(`#2C2C2C`)만 여전히 나머지 탭(`#1A1A1C`)과
+다른 별도 값인데, 이번에 지적된 문제가 아니라서 이번 개정에서는 건드리지
+않았다 — 다크모드까지 통일할지는 별도로 확인 필요.
+
+> `cream` 토큰 자체는 폐기하지 않았다. 다크모드의 밝은 텍스트 색,
+> 카테고리 탭 미선택 칩의 포인트 색으로는 계속 쓰인다 (2-1 참고).
 
 ---
 
@@ -293,8 +300,11 @@
 | Display(HOME/SEOUL) 타이포 | 32px / Medium(500) | 24px / DemiLight(300) | 3-1 CardBigValue로 실측값 반영 |
 | Header(EXHIBITION) 타이포 | 20px / Medium(500) | 20px / **Bold(700)** | 3-1 CardHeader로 실측값 반영 |
 | 비행기 아이콘 | "아이콘은 outline 통일" 규칙과 충돌 | `airplane`(filled) 사용 | 6번 섹션에 의도적 예외로 명문화 |
-| 보딩패스 화면 배경 | 일반 화면과 같은 크림/#1A1A1C로 오인되기 쉬움 | 라이트 `#FFFFFF` / 다크 `#2C2C2C` | 2-4에 예외로 명문화 |
+| 보딩패스 화면 배경 (v2 당시) | 일반 화면과 같은 크림/#1A1A1C로 오인되기 쉬움 | 라이트 `#FFFFFF` / 다크 `#2C2C2C` | 2-4에 예외로 명문화 → **아래 항목에서 라이트 모드는 이 예외를 다시 없앰** |
 | 목록 카드(EventListCard) 포스터 radius | `radius-md`(12) 규칙과 다르게 코드에서 8 사용 | - | 코드를 12로 수정(`app/(tabs)/booking/index.tsx`) |
 | 보딩패스 정적 컴포넌트 라벨 색 오타 | `#2C2C2E` (다른 파일과 한 글자 다름) | `#2C2C2C` | 코드를 `#2C2C2C`로 수정(`components/boarding-pass-card.tsx`) |
+| 예매 목록 카드 텍스트 다크모드 미대응 | 제목/날짜/장소/가격/구분선이 `Colors.textPrimary` 등 라이트 전용 고정값 | `theme.text` / `theme.textSecondary` / `theme.dashedBorder` | 코드 수정(`app/(tabs)/booking/index.tsx`) — 다크모드에서 안 보이던 문제 |
+| 카테고리 탭 크기 | 가로 ScrollView `alignItems` 누락으로 pill이 세로로 길게 늘어남 | `alignItems: 'flex-start'` 추가 | 코드 수정(`app/(tabs)/booking/index.tsx`) |
+| **라이트 모드 화면 배경 (2026.07.15)** | cream `#F5F1E8` (보딩패스만 흰색 예외) | **흰색 `#FFFFFF`로 전체 통일**, cream은 배경에서 폐기 | `Theme.light.background` 수정(`constants/colors.ts`). 2-4 참고 |
 
 컴포넌트별 상세 스펙은 [`design-components.md`](./design-components.md) 참고.
