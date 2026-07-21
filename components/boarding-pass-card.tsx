@@ -20,8 +20,8 @@ import { StyleSheet, Text, View } from 'react-native';
 import { CategoryColors, CategoryIcons, CategoryLabels } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
 
-// 카드 안의 검정/흰 글씨 색 (피그마 값 그대로: #2C2C2E, white, black)
-const LABEL_COLOR = '#2C2C2E'; // Bold 10 라벨 (PASSENGER, DATE 등)
+// 카드 안의 검정/흰 글씨 색 (피그마 값 그대로: #2C2C2C, white, black)
+const LABEL_COLOR = '#2C2C2C'; // Bold 10 라벨 (PASSENGER, DATE 등)
 const VALUE_COLOR = '#FFFFFF'; // DemiLight 값 글씨
 const ICON_COLOR = '#000000'; // 카테고리 아이콘 / 비행기 아이콘
 

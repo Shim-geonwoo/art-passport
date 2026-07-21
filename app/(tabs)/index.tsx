@@ -8,6 +8,7 @@
 //
 // 화면 동작 규칙:
 // - "관람 3일 전 ~ 관람 시각" 사이인 예매만 보딩패스로 보여준다. (그 전/후는 안 보임)
+// - 마이페이지에서 취소한 예매는 보딩패스에서도 즉시 사라진다.
 // - 여러 장이면 애플 월렛처럼 겹쳐 쌓고, 스크롤로 뒤에 깔린 카드를 볼 수 있다.
 // - 보여줄 티켓이 하나도 없으면, 안내 문구 없이 완전히 빈 화면으로 둔다.
 // - 아직 실제 예매 데이터가 없어서, 더미 데이터로만 화면을 채운다.
@@ -20,11 +21,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CategoryColors, CategoryIcons, CategoryLabels, Colors, Genre, Theme } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
+import { useBookings } from '@/contexts/bookings';
+import { DerivedBooking, deriveBoardingPasses } from '@/data/dummy-bookings';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-
-// 보딩패스로 보여줄 수 있는 기간: 관람 3일 전부터 관람 시각까지
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-const BOARDING_WINDOW_MS = 3 * ONE_DAY_MS;
+import { useNow } from '@/hooks/use-now';
 
 // 카드 스택 한 칸의 크기 (docs/design-system.md 8-1: 270 x 380)
 const CARD_WIDTH = 270;
@@ -43,7 +43,12 @@ const STACK_SHADOW_BY_POSITION = [
 
 const STACK_ANIMATION_DURATION_MS = 350;
 
-// 카드가 4장 이상이면(자리가 3개보다 많으면) 정의 안 된 자리는 "맨 뒤" 값을 그대로 재사용한다
+// 스택에 한 번에 겹쳐 보여주는 카드 수. 자리(STACK_TOP_BY_POSITION)가 3개뿐이라
+// 4장째부터는 3장째와 같은 자리에 겹쳐서 안 보이기 때문에, 애플 월렛처럼
+// 앞 3장만 쌓아 보여주고 나머지는 "+N장" 표시로 알린다.
+const MAX_VISIBLE_CARDS = STACK_TOP_BY_POSITION.length;
+
+// 자리가 3개보다 뒤인 경우(스택을 돌리는 중 잠깐 지나가는 상태)는 "맨 뒤" 값을 그대로 재사용한다
 function getStackSlot(position: number) {
   const clampedIndex = Math.min(position, STACK_TOP_BY_POSITION.length - 1);
   return {
@@ -72,6 +77,11 @@ const ARRIVAL_VALUE = 'SEOUL';
 
 // 화면 맨 위 타이틀 (피그마 "art - boarding pass" 프레임 상단 헤더)
 const SCREEN_TITLE = 'ART PASS';
+
+// 아직 로그인이 없어서 예매자 이름은 더미로 고정한다.
+// 좌석은 자유석 고정, 인원(CAP)은 결제 화면에서 정한 booking.quantity를 쓴다.
+const PASSENGER_NAME = 'SHIM GEONWOO';
+const SEAT_INFO = '자유석';
 
 // 예매 한 건 = 보딩패스 카드 한 장
 type Booking = {
@@ -108,86 +118,23 @@ function formatTime(date: Date): string {
   return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
 }
 
-// 더미 예매 원본 데이터: 관람 시각을 "지금부터 몇 시간/며칠 뒤(또는 전)"로 표현해서,
-// 앱을 언제 실행해도 "3일 전 ~ 관람 시각" 필터가 항상 의미 있게 동작하도록 만들었다.
-const DUMMY_BOOKING_SEEDS: {
-  id: string;
-  genre: Genre;
-  eventTitle: string;
-  venueName: string;
-  offsetMs: number; // "지금"으로부터 관람 시각까지 남은 시간 (음수면 이미 지난 시각)
-  seatInfo: string;
-  capacity: number;
-}[] = [
-  {
-    id: '1',
-    genre: '뮤지컬',
-    eventTitle: '라이온킹',
-    venueName: '블루스퀘어',
-    offsetMs: 18 * 60 * 60 * 1000, // 18시간 뒤 -> 보딩패스 뜸
-    seatInfo: '자유석',
-    capacity: 1,
-  },
-  {
-    id: '2',
-    genre: '전시',
-    eventTitle: '행성 지구 아카이브',
-    venueName: '리움미술관',
-    offsetMs: 1 * ONE_DAY_MS, // 1일 뒤 -> 보딩패스 뜸
-    seatInfo: '자유석',
-    capacity: 1,
-  },
-  {
-    id: '3',
-    genre: '콘서트',
-    eventTitle: 'Summer Sound Fest',
-    venueName: '올림픽공원',
-    offsetMs: 2 * ONE_DAY_MS + 12 * 60 * 60 * 1000, // 2.5일 뒤 -> 보딩패스 뜸 (3일 이내)
-    seatInfo: '자유석',
-    capacity: 1,
-  },
-  {
-    id: '4',
-    genre: '연극',
-    eventTitle: '햄릿',
-    venueName: '대학로 예술극장',
-    offsetMs: 5 * ONE_DAY_MS, // 5일 뒤 -> 아직 3일 전이 아니라서 안 보임
-    seatInfo: '자유석',
-    capacity: 1,
-  },
-  {
-    id: '5',
-    genre: '클래식·무용',
-    eventTitle: '백조의 호수',
-    venueName: '예술의전당',
-    offsetMs: -2 * 60 * 60 * 1000, // 2시간 전 -> 관람 시각이 지나서 안 보임
-    seatInfo: '자유석',
-    capacity: 1,
-  },
-];
-
-function buildDummyBookings(now: Date): Booking[] {
-  return DUMMY_BOOKING_SEEDS.map((seed) => {
-    const showAt = new Date(now.getTime() + seed.offsetMs);
-    return {
-      id: seed.id,
-      genre: seed.genre,
-      eventTitle: seed.eventTitle,
-      venueName: seed.venueName,
-      passengerName: 'SHIM GEONWOO', // 아직 로그인 기능이 없어서 더미 이름 고정
-      showAt,
-      dateText: formatDate(showAt),
-      timeText: formatTime(showAt),
-      seatInfo: seed.seatInfo,
-      capacity: seed.capacity,
-    };
-  });
-}
-
-// "관람 3일 전 ~ 관람 시각" 사이인지 확인한다
-function isWithinBoardingWindow(showAt: Date, now: Date): boolean {
-  const msUntilShow = showAt.getTime() - now.getTime();
-  return msUntilShow >= 0 && msUntilShow <= BOARDING_WINDOW_MS;
+// 중앙 데이터(data/dummy-bookings.ts)에서 파생된 예매 한 건을,
+// 이 화면의 카드가 그릴 수 있는 표현용 형태로 옮긴다.
+// "지금 보딩패스로 보여줄지"의 판단(3일 이내)과 정렬은 deriveBoardingPasses가 이미 해준다.
+function toCardBooking(booking: DerivedBooking): Booking {
+  return {
+    id: booking.id,
+    genre: booking.event.genre,
+    eventTitle: booking.event.title,
+    venueName: booking.event.venueName,
+    passengerName: PASSENGER_NAME,
+    showAt: booking.showAt,
+    dateText: formatDate(booking.showAt),
+    // 전시처럼 시각이 없는 경우엔 시간 칸을 비워 둔다 (보딩패스 데모엔 시각 있는 공연만 뜬다)
+    timeText: booking.event.time ? formatTime(booking.showAt) : '',
+    seatInfo: SEAT_INFO,
+    capacity: booking.quantity, // 결제 화면에서 고른 인원 (deriveBooking이 1 이상으로 정규화해 둠)
+  };
 }
 
 export default function BoardingPassScreen() {
@@ -203,58 +150,82 @@ export default function BoardingPassScreen() {
   const ticketMode = getDemoTicketMode();
 
   // "지금" 시각을 화면이 처음 열릴 때 한 번만 고정한다 (렌더링 중간에 결과가 안 바뀌게)
-  const [now] = useState(() => new Date());
+  const now = useNow();
 
-  const allBookings = ticketMode === 'none' ? [] : buildDummyBookings(now);
-  // 보딩패스로 보여줄 조건에 맞는 예매만 남기고, 관람 시각이 가까운 순서로 정렬한다
-  const visibleBookings = allBookings
-    .filter((booking) => isWithinBoardingWindow(booking.showAt, now))
-    .sort((a, b) => a.showAt.getTime() - b.showAt.getTime());
+  // 앱 전체가 공유하는 예매 목록 (앱 최상단 BookingsProvider)
+  const { bookings } = useBookings();
 
-  // 스택에서 카드가 쌓인 순서. index 0 = 맨 앞 카드.
-  // 처음엔 관람일이 가까운 순서를 그대로 앞-뒤 순서로 쓴다.
+  // 보딩패스로 보여줄 예매만(관람 3일 이내) 관람일 가까운 순으로 이미 걸러져 온다.
+  // 취소한 예매는 status가 '취소'라 deriveBoardingPasses가 알아서 빼준다.
+  // 'none' 데모 모드에서는 빈 월렛 화면을 확인할 수 있게 강제로 비운다.
+  const visibleBookings = (ticketMode === 'none' ? [] : deriveBoardingPasses(bookings, now))
+    .map(toCardBooking);
+
+  // 사용자가 카드를 탭해서 만든 앞-뒤 순서. index 0 = 맨 앞 카드.
+  // 처음엔 관람일이 가까운 순서를 그대로 쓴다.
   const [frontOrder, setFrontOrder] = useState<string[]>(() =>
     visibleBookings.map((booking) => booking.id)
   );
+
+  // 실제로 그릴 스택 순서.
+  // frontOrder에는 취소돼서 이제 안 보이는 카드의 id가 남아 있을 수 있으므로,
+  // "지금 보이는 카드"만 남기고 걸러낸다. 이렇게 해야 앞 카드가 취소됐을 때
+  // 뒷 카드들이 빈 자리를 메우며 한 칸씩 앞으로 당겨진다.
+  // (frontOrder에 아직 없는 새 카드는 뒤에 붙인다)
+  const visibleIds = visibleBookings.map((booking) => booking.id);
+  const stackOrder = [
+    ...frontOrder.filter((id) => visibleIds.includes(id)),
+    ...visibleIds.filter((id) => !frontOrder.includes(id)),
+  ];
 
   // 카드마다 "지금 스택에서 몇 번째 자리인지"를 담는 애니메이션 값을 하나씩 준비해둔다.
   // ref에 담아서 한 번만 만들고 계속 재사용한다 (렌더될 때마다 새로 만들면 애니메이션이 끊긴다).
   const stackAnimsRef = useRef<Record<string, Animated.Value>>({});
   visibleBookings.forEach((booking) => {
     if (!stackAnimsRef.current[booking.id]) {
-      const initialPosition = frontOrder.indexOf(booking.id);
-      stackAnimsRef.current[booking.id] = new Animated.Value(initialPosition === -1 ? 0 : initialPosition);
+      stackAnimsRef.current[booking.id] = new Animated.Value(Math.max(0, stackOrder.indexOf(booking.id)));
     }
   });
 
-  // 카드를 탭했을 때 실행: 그 카드를 맨 앞으로, 나머지는 한 칸씩 뒤로 민다.
-  // zIndex(누가 위에 그려질지)는 즉시 바꾸고, 위치/그림자만 350ms 동안 부드럽게 움직인다.
-  function bringCardToFront(bookingId: string) {
-    if (frontOrder[0] === bookingId) {
-      return; // 이미 맨 앞이면 아무것도 하지 않는다
-    }
-
-    const rest = frontOrder.filter((id) => id !== bookingId);
-    const nextOrder = [bookingId, ...rest];
-
-    nextOrder.forEach((id, nextPosition) => {
-      const previousPosition = frontOrder.indexOf(id);
-      if (previousPosition === nextPosition) {
-        return; // 자리가 안 바뀐 카드는 애니메이션할 필요 없다
-      }
+  // 스택 순서가 바뀔 때마다(탭해서 앞으로 꺼냈든, 취소돼서 한 장 빠졌든)
+  // 각 카드를 자기 새 자리로 350ms 동안 부드럽게 움직인다.
+  // zIndex(누가 위에 그려질지)는 애니메이션 없이 즉시 바뀐다.
+  const stackOrderKey = stackOrder.join(',');
+  useEffect(() => {
+    stackOrder.forEach((id, position) => {
       const animValue = stackAnimsRef.current[id];
       if (!animValue) {
         return;
       }
       Animated.timing(animValue, {
-        toValue: nextPosition,
+        toValue: position,
         duration: STACK_ANIMATION_DURATION_MS,
         easing: Easing.inOut(Easing.ease),
         useNativeDriver: false, // top/그림자는 레이아웃 속성이라 네이티브 드라이버를 못 쓴다
       }).start();
     });
+    // 순서가 실제로 바뀐 경우에만 실행한다 (stackOrder 배열은 매 렌더 새로 만들어져서 deps로 못 쓴다)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stackOrderKey]);
 
-    setFrontOrder(nextOrder);
+  // 카드를 탭했을 때 실행: 그 카드를 맨 앞으로, 나머지는 한 칸씩 뒤로 민다.
+  // (실제 움직임은 위 useEffect가 stackOrder 변화를 보고 처리한다)
+  function bringCardToFront(bookingId: string) {
+    if (stackOrder[0] === bookingId) {
+      return; // 이미 맨 앞이면 아무것도 하지 않는다
+    }
+    setFrontOrder([bookingId, ...stackOrder.filter((id) => id !== bookingId)]);
+  }
+
+  // "+N장"을 탭했을 때: 맨 앞 카드를 맨 뒤로 보낸다.
+  // 그러면 뒤에 숨어 있던 카드가 한 칸씩 앞으로 당겨와 스택에 나타난다.
+  // (카드를 탭하는 것만으로는 4장째 이후를 볼 수 없어서, 이 버튼이 유일한 통로다)
+  function cycleStack() {
+    if (stackOrder.length <= MAX_VISIBLE_CARDS) {
+      return;
+    }
+    const [front, ...rest] = stackOrder;
+    setFrontOrder([...rest, front]);
   }
 
   // 검색창 상태: 검색 아이콘을 누르면 열리고, 글자를 입력하면 콘텐츠명/장소로 찾는다
@@ -318,6 +289,10 @@ export default function BoardingPassScreen() {
   const shadowRadiusRange = stackPositions.map((position) => getStackSlot(position).shadowRadius);
   const elevationRange = stackPositions.map((position) => getStackSlot(position).elevation);
 
+  // 앞에서부터 MAX_VISIBLE_CARDS장만 실제로 그린다. 나머지는 "+N장"으로만 알린다.
+  const renderedIds = stackOrder.slice(0, MAX_VISIBLE_CARDS);
+  const hiddenCount = stackOrder.length - renderedIds.length;
+
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: screenBackground }]} edges={['top']}>
       <BoardingPassHeader
@@ -332,10 +307,12 @@ export default function BoardingPassScreen() {
       {/* 카드 스택 영역: 화면 가운데에 카드 3장이 겹쳐 쌓인 고정 자리를 만든다 */}
       <View style={styles.stackArea}>
         <View style={styles.stackContainer}>
-          {visibleBookings.map((booking) => {
+          {visibleBookings
+            .filter((booking) => renderedIds.includes(booking.id))
+            .map((booking) => {
             const categoryColor = CategoryColors[booking.genre];
             const animValue = stackAnimsRef.current[booking.id];
-            const stackPosition = frontOrder.indexOf(booking.id);
+            const stackPosition = stackOrder.indexOf(booking.id);
 
             // 하나의 애니메이션 값(0,1,2...)에서 top/그림자를 동시에 보간해서 뽑아낸다
             // -> 카드가 앞으로 올수록 위치와 그림자가 같이 움직인다
@@ -380,6 +357,13 @@ export default function BoardingPassScreen() {
             );
           })}
         </View>
+
+        {/* 스택에 다 못 보여준 카드가 몇 장 남았는지. 누르면 맨 앞 카드가 뒤로 가면서 다음 카드가 나온다 */}
+        {hiddenCount > 0 ? (
+          <Pressable style={styles.moreBadge} onPress={cycleStack}>
+            <Text style={styles.moreBadgeText}>+{hiddenCount}장</Text>
+          </Pressable>
+        ) : null}
       </View>
     </SafeAreaView>
   );
@@ -438,7 +422,10 @@ function BoardingPassCard({ booking }: { booking: Booking }) {
     <View style={[styles.card, { backgroundColor: categoryColor }]}>
       {/* 상단 (270 x 42) */}
       <View style={styles.topSection}>
-        <Text style={styles.categoryName}>{categoryLabel}</Text>
+        {/* 'CLASSIC & DANCE'처럼 긴 라벨이 2줄로 넘어가지 않게 한 줄 고정 + 필요하면 글자 크기 축소 */}
+        <Text style={styles.categoryName} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+          {categoryLabel}
+        </Text>
         {/* 카테고리 아이콘: 37x37 칸 가운데에 놓는다 (피그마 실측 칸 크기) */}
         <View style={styles.topIconSlot}>
           <MaterialCommunityIcons name={categoryIconName} size={24} color={CARD_ICON_COLOR} />
@@ -550,6 +537,20 @@ const styles = StyleSheet.create({
     height: STACK_TOP_BY_POSITION[0] + CARD_HEIGHT,
   },
 
+  // 스택 아래 "+N장" 알약 뱃지 (design-system.md: radius-pill 20, gold는 뱃지 포인트로 소량)
+  moreBadge: {
+    marginTop: 16, // md
+    borderRadius: 20, // radius-pill
+    paddingHorizontal: 12,
+    paddingVertical: 4, // xs
+    backgroundColor: Colors.gold,
+  },
+  moreBadgeText: {
+    fontFamily: Fonts.medium,
+    fontSize: 11, // Label 크기
+    color: Colors.textOnColor,
+  },
+
   // 카드 한 장을 감싸는 그림자 전용 껍데기.
   // 카드 자체(styles.card)는 overflow:'hidden'이 있어서 그 위에 그림자를 직접 그리면 잘려 안 보인다.
   // 그래서 overflow가 없는 이 바깥 View에 그림자(shadow*, elevation)를 걸고, 안에 카드를 넣는다.
@@ -585,7 +586,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 11,
     top: 9,
-    width: 118,
+    width: 210, // 오른쪽 아이콘(left 229) 앞까지 넓혀서 'CLASSIC & DANCE'가 한 줄에 들어가게 한다
     height: 24,
     fontFamily: Fonts.bold,
     fontSize: 20,
