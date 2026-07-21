@@ -17,7 +17,7 @@ import { GenreBadge } from '@/components/genre-badge';
 import { Colors, Theme, ThemeColors } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
 import { useBookings } from '@/contexts/bookings';
-import { bookingOffsetDaysFor } from '@/data/dummy-bookings';
+import { bookingOffsetDaysFor, COUPON_DISCOUNT_RATE, firstUsableCoupon } from '@/data/dummy-bookings';
 import { DUMMY_EVENTS } from '@/data/dummy-events';
 import { formatDate, formatDateTime, offsetToDate } from '@/data/schedule';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -32,12 +32,16 @@ export default function CheckoutScreen() {
   const colorScheme = useColorScheme();
   const theme: ThemeColors = colorScheme === 'dark' ? Theme.dark : Theme.light;
 
-  const { add } = useBookings();
+  const { add, bookings } = useBookings();
 
   const event = DUMMY_EVENTS.find((item) => item.id === id);
 
   // 인원(매수). − / + 버튼으로 1~4 사이에서 조절한다.
   const [quantity, setQuantity] = useState(MIN_QUANTITY);
+
+  // 지금 쓸 수 있는 쿠폰 1장(있으면). 있으면 기본으로 적용해 둔다(혜택이라 사용자가 원할 가능성이 높다).
+  const usableCoupon = firstUsableCoupon(bookings);
+  const [applyCoupon, setApplyCoupon] = useState(true);
 
   if (!event) {
     return (
@@ -51,20 +55,27 @@ export default function CheckoutScreen() {
   // 내가 실제로 관람할 날짜 (전시는 기간형이라 카탈로그 날짜와 다르다 — bookingOffsetDaysFor 참고)
   const showAt = offsetToDate(bookingOffsetDaysFor(event), event.time);
   const whenText = event.time ? formatDateTime(showAt) : formatDate(showAt);
-  const totalPrice = event.price * quantity;
+
+  // 금액: 원가 → (쿠폰 적용 시) 10% 할인 → 결제금액
+  const originalPrice = event.price * quantity;
+  const couponApplied = !!usableCoupon && applyCoupon;
+  const discountAmount = couponApplied ? Math.round(originalPrice * (COUPON_DISCOUNT_RATE / 100)) : 0;
+  const totalPrice = originalPrice - discountAmount;
 
   function changeQuantity(delta: number) {
     setQuantity((prev) => Math.min(MAX_QUANTITY, Math.max(MIN_QUANTITY, prev + delta)));
   }
 
-  // "테스트 결제하기": 실제 예매를 만들고(인원 포함), 완료를 알린 뒤 예매 목록으로 돌아간다.
+  // "테스트 결제하기": 실제 예매를 만들고(인원·쿠폰 포함), 완료를 알린 뒤 예매 목록으로 돌아간다.
   function handlePay() {
     if (!event) {
       return;
     }
-    add(event, quantity);
+    // 쿠폰을 적용했으면 그 쿠폰 id를 함께 넘긴다 → 예매에 기록되고 쿠폰이 '사용완료'가 된다
+    add(event, quantity, couponApplied ? usableCoupon.id : undefined);
 
-    const detail = `${event.title}\n${whenText} · ${event.venueName}\n${SEAT_INFO} ${quantity}매 · ${totalPrice.toLocaleString('ko-KR')}원`;
+    const couponLine = couponApplied ? `\n쿠폰 ${COUPON_DISCOUNT_RATE}% 할인 적용` : '';
+    const detail = `${event.title}\n${whenText} · ${event.venueName}\n${SEAT_INFO} ${quantity}매 · ${totalPrice.toLocaleString('ko-KR')}원${couponLine}`;
 
     // 완료 후에는 결제·상세를 건너뛰고 예매 목록으로 바로 돌아온다 (뒤로가기로 결제창에 안 걸리게)
     const goToList = () => router.dismissTo('/booking');
@@ -118,6 +129,29 @@ export default function CheckoutScreen() {
           </View>
         </View>
 
+        {/* 쿠폰 적용 (쓸 수 있는 쿠폰이 있을 때만 보인다). 누르면 켜고 끈다. */}
+        {usableCoupon ? (
+          <Pressable
+            style={[styles.couponRow, { borderColor: theme.dashedBorder }]}
+            onPress={() => setApplyCoupon((prev) => !prev)}>
+            <View style={styles.couponInfo}>
+              <Text style={[styles.couponTitle, { color: theme.text }]}>{usableCoupon.benefit}</Text>
+              <Text style={[styles.couponMeta, { color: theme.textSecondary }]}>
+                {COUPON_DISCOUNT_RATE}% 할인 쿠폰 사용
+              </Text>
+            </View>
+            {/* 체크 표시: 적용 중이면 골드 채움, 아니면 빈 테두리 */}
+            <View
+              style={[
+                styles.checkbox,
+                { borderColor: theme.dashedBorder },
+                couponApplied && styles.checkboxOn,
+              ]}>
+              {couponApplied ? <Text style={styles.checkboxMark}>✓</Text> : null}
+            </View>
+          </Pressable>
+        ) : null}
+
         {/* 금액 계산 */}
         <View style={[styles.card, { backgroundColor: theme.emptyCellBackground }]}>
           <InfoRow
@@ -127,6 +161,16 @@ export default function CheckoutScreen() {
           />
           <Divider theme={theme} />
           <InfoRow label="인원" value={`${quantity}매`} theme={theme} />
+          {couponApplied ? (
+            <>
+              <Divider theme={theme} />
+              <InfoRow
+                label={`쿠폰 할인 (${COUPON_DISCOUNT_RATE}%)`}
+                value={`-${discountAmount.toLocaleString('ko-KR')}원`}
+                theme={theme}
+              />
+            </>
+          ) : null}
           <Divider theme={theme} />
           <InfoRow
             label="결제금액"
@@ -260,6 +304,48 @@ const styles = StyleSheet.create({
   },
   infoValueEmphasis: {
     fontSize: 18, // 결제금액 강조
+  },
+
+  // 쿠폰 적용 토글 행
+  couponRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderRadius: 16, // radius-card
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
+  },
+  couponInfo: {
+    flex: 1,
+    gap: 4,
+  },
+  couponTitle: {
+    fontFamily: Fonts.medium,
+    fontSize: 14,
+  },
+  couponMeta: {
+    fontFamily: Fonts.regular,
+    fontSize: 12,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxOn: {
+    backgroundColor: Colors.gold,
+    borderColor: Colors.gold,
+  },
+  checkboxMark: {
+    fontFamily: Fonts.bold,
+    fontSize: 14,
+    lineHeight: 16,
+    color: Colors.textOnColor,
   },
 
   // 인원 선택

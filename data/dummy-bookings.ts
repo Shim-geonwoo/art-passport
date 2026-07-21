@@ -16,6 +16,9 @@
 import { DUMMY_EVENTS, EventItem } from '@/data/dummy-events';
 import { MS_PER_DAY, offsetToDate, startOfToday } from '@/data/schedule';
 
+// 쿠폰 할인율(%). 이 앱의 모든 쿠폰은 "다음 예매 10% 할인" 하나뿐이다 (docs/data-structure.md).
+export const COUPON_DISCOUNT_RATE = 10;
+
 // ── 원천 데이터 타입 ──────────────────────────────────────
 
 // 예매 하나 (docs/data-structure.md의 bookings 테이블 축소판)
@@ -25,6 +28,7 @@ export type BookingItem = {
   offsetDays: number; // 내가 예매한 실제 관람일 (오늘 기준 상대일). event의 카탈로그 날짜와 별개다
   isCancelled: boolean; // 취소 여부. 유일하게 "저장하는" 상태
   quantity?: number; // 인원(자유석 매수). 결제 화면에서 정한다. 없으면 1로 본다(옛 데모 데이터 호환)
+  usedCouponId?: string; // 이 예매에 쓴 쿠폰 id. 있으면 10% 할인 + 그 쿠폰이 '사용완료'가 된다
 };
 
 export type BookingStatus = '예매완료' | '관람완료' | '취소';
@@ -92,8 +96,10 @@ export type DerivedBooking = BookingItem & {
   status: BookingStatus;
   isBoardingPass: boolean; // 지금 보딩패스로 보여줘야 하는가
   hasStamp: boolean; // 관람완료라서 스탬프가 찍혔는가
-  quantity: number; // 인원(항상 1 이상으로 정규화). 결제금액 = event.price * quantity
-  totalPrice: number; // 실제 결제금액 (단가 × 인원)
+  quantity: number; // 인원(항상 1 이상으로 정규화)
+  discountRate: number; // 적용된 할인율(%). 쿠폰을 안 썼으면 0
+  originalPrice: number; // 할인 전 금액 (단가 × 인원)
+  totalPrice: number; // 실제 결제금액 (할인 반영)
 };
 
 // docs/data-flow.md 2장의 규칙을 그대로 코드로 옮긴 함수.
@@ -128,11 +134,26 @@ export function deriveBooking(booking: BookingItem, now: Date = new Date()): Der
   // 스탬프: 관람완료면 곧 스탬프 (취소는 관람완료가 될 수 없으므로 자동 제외)
   const hasStamp = status === '관람완료';
 
-  // 인원은 항상 1 이상으로 정규화하고, 그걸로 결제금액을 계산한다
+  // 인원은 항상 1 이상으로 정규화한다
   const quantity = booking.quantity && booking.quantity > 0 ? booking.quantity : 1;
-  const totalPrice = event.price * quantity;
+  const originalPrice = event.price * quantity;
 
-  return { ...booking, event, showAt, status, isBoardingPass, hasStamp, quantity, totalPrice };
+  // 쿠폰을 썼으면 10% 할인. 원 단위 반올림.
+  const discountRate = booking.usedCouponId ? COUPON_DISCOUNT_RATE : 0;
+  const totalPrice = Math.round(originalPrice * (1 - discountRate / 100));
+
+  return {
+    ...booking,
+    event,
+    showAt,
+    status,
+    isBoardingPass,
+    hasStamp,
+    quantity,
+    discountRate,
+    originalPrice,
+    totalPrice,
+  };
 }
 
 // 모든 예매를 파생 계산해서 반환
@@ -219,18 +240,34 @@ const DEMO_USED_COUPONS: Coupon[] = [
   { id: 'coupon-used-1', benefit: '다음 예매 10% 할인', discountRate: 10, status: '사용완료' },
 ];
 
-// 스탬프 9개를 채울 때마다 '사용가능' 쿠폰 1장을 발급 (docs/data-flow.md 2장)
+// 스탬프 9개를 채울 때마다 '사용가능' 쿠폰 1장을 발급 (docs/data-flow.md 2장).
+// 사용 여부는 따로 저장하지 않고, "어떤 예매가 그 쿠폰을 썼는지"(booking.usedCouponId)에서 파생한다.
+// 취소된 예매가 쓴 쿠폰은 반환된다(다시 '사용가능').
 export function deriveCoupons(bookings: BookingItem[], now: Date = new Date()): Coupon[] {
   const stampCount = deriveStamps(bookings, now).length;
   const issuedCount = Math.floor(stampCount / STAMPS_PER_PAGE);
 
-  const autoIssued: Coupon[] = Array.from({ length: issuedCount }, (_, i) => ({
-    id: `coupon-auto-${i + 1}`,
-    benefit: '다음 예매 10% 할인',
-    discountRate: 10,
-    status: '사용가능' as CouponStatus,
-    issuedAtStampOrder: (i + 1) * STAMPS_PER_PAGE,
-  }));
+  // 살아있는(취소 안 된) 예매가 쓴 쿠폰 id 모음
+  const usedCouponIds = new Set(
+    bookings.filter((b) => !b.isCancelled && b.usedCouponId).map((b) => b.usedCouponId)
+  );
+
+  const autoIssued: Coupon[] = Array.from({ length: issuedCount }, (_, i) => {
+    const id = `coupon-auto-${i + 1}`;
+    return {
+      id,
+      benefit: '다음 예매 10% 할인',
+      discountRate: COUPON_DISCOUNT_RATE,
+      status: usedCouponIds.has(id) ? '사용완료' : '사용가능',
+      issuedAtStampOrder: (i + 1) * STAMPS_PER_PAGE,
+    };
+  });
 
   return [...autoIssued, ...DEMO_USED_COUPONS];
+}
+
+// 지금 결제에 쓸 수 있는 쿠폰 1장을 고른다 (없으면 undefined).
+// 여러 장이면 먼저 발급된 것부터 쓴다.
+export function firstUsableCoupon(bookings: BookingItem[], now: Date = new Date()): Coupon | undefined {
+  return deriveCoupons(bookings, now).find((c) => c.status === '사용가능');
 }

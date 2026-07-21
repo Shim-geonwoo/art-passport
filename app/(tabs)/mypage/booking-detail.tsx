@@ -105,6 +105,16 @@ export default function BookingDetailScreen() {
           <Divider theme={theme} />
           <InfoRow label="좌석" value={`${SEAT_INFO} ${booking.quantity}매`} theme={theme} />
           <Divider theme={theme} />
+          {booking.discountRate > 0 && (
+            <>
+              <InfoRow
+                label={`쿠폰 할인 (${booking.discountRate}%)`}
+                value={`-${(booking.originalPrice - booking.totalPrice).toLocaleString('ko-KR')}원`}
+                theme={theme}
+              />
+              <Divider theme={theme} />
+            </>
+          )}
           <InfoRow
             label="결제금액"
             value={`${booking.totalPrice.toLocaleString('ko-KR')}원`}

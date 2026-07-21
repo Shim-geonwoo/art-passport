@@ -46,8 +46,8 @@ export default function RootLayout() {
   }
 
   // 테마 설정(시스템/라이트/다크)을 앱 전체에 제공한다. 실제 색 스킴 계산은 그 안쪽에서 한다.
-  // 예매 취소 상태(BookingsProvider)도 앱 전체에 둔다. 마이페이지에서 취소한 예매가
-  // 보딩패스 탭에서도 바로 사라져야 하므로, 두 탭을 함께 감싸는 여기가 제자리다.
+  // 예매 목록(BookingsProvider)도 앱 전체에 둔다. 예매/취소/쿠폰사용 결과가 모든 탭에
+  // 함께 반영돼야 하고 기기 저장소에 유지되므로, 두 탭을 함께 감싸는 여기가 제자리다.
   return (
     <ThemePreferenceProvider>
       <BookingsProvider>
