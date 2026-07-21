@@ -5,7 +5,6 @@
 
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -17,6 +16,7 @@ import { useBookings } from '@/contexts/bookings';
 import { BookingStatus, deriveAllBookings } from '@/data/dummy-bookings';
 import { formatDateTime, formatDate } from '@/data/schedule';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useNow } from '@/hooks/use-now';
 
 const BOOKING_STATUS_COLOR: Record<BookingStatus, string> = {
   예매완료: Colors.blue,
@@ -33,7 +33,7 @@ export default function BookingDetailScreen() {
   const theme: ThemeColors = colorScheme === 'dark' ? Theme.dark : Theme.light;
 
   const { bookings, cancel } = useBookings();
-  const [now] = useState(() => new Date());
+  const now = useNow();
 
   // id로 예매를 찾고, 취소한 건이면 상태를 '취소'로 덮어쓴다
   // 취소 여부는 deriveAllBookings가 이미 상태에 반영해 준다

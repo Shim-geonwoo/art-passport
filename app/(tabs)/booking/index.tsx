@@ -13,8 +13,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { GenreBadge } from '@/components/genre-badge';
 import { CategoryColors, Colors, Genre, Theme } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
-import { DUMMY_EVENTS, EventItem, formatEventSchedule } from '@/data/dummy-events';
+import { DUMMY_EVENTS, EventItem, formatEventSchedule, isBookable } from '@/data/dummy-events';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useNow } from '@/hooks/use-now';
 
 // 상단 카테고리 탭 목록 (design-system.md 1-2 순서 그대로)
 const GENRES: Genre[] = ['전시', '클래식·무용', '콘서트', '연극', '뮤지컬'];
@@ -26,7 +27,12 @@ export default function BookingListScreen() {
   // 처음 화면을 열었을 때는 첫 번째 카테고리(전시)만 필터링된 상태로 보여준다
   const [selectedGenre, setSelectedGenre] = useState<Genre>(GENRES[0]);
 
-  const filteredEvents = DUMMY_EVENTS.filter((event) => event.genre === selectedGenre);
+  const now = useNow();
+
+  // 선택한 카테고리 중, 아직 예매 가능한(지나거나 종료되지 않은) 이벤트만 보여준다.
+  const filteredEvents = DUMMY_EVENTS.filter(
+    (event) => event.genre === selectedGenre && isBookable(event, now)
+  );
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top']}>

@@ -16,6 +16,7 @@ import { useBookings } from '@/contexts/bookings';
 import { BookingStatus, deriveAllBookings, DerivedBooking } from '@/data/dummy-bookings';
 import { formatDate, formatDateTime } from '@/data/schedule';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useNow } from '@/hooks/use-now';
 
 // 상태 뱃지 색 (예매완료=파랑, 관람완료=네이비, 취소=회색)
 const BOOKING_STATUS_COLOR: Record<BookingStatus, string> = {
@@ -33,7 +34,7 @@ export default function BookingsScreen() {
   const theme: ThemeColors = colorScheme === 'dark' ? Theme.dark : Theme.light;
 
   const { bookings } = useBookings();
-  const [now] = useState(() => new Date());
+  const now = useNow();
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('전체');
   const [query, setQuery] = useState('');

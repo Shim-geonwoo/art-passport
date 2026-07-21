@@ -18,9 +18,10 @@ import { Colors, Theme, ThemeColors } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
 import { useBookings } from '@/contexts/bookings';
 import { bookingOffsetDaysFor, COUPON_DISCOUNT_RATE, firstUsableCoupon } from '@/data/dummy-bookings';
-import { DUMMY_EVENTS } from '@/data/dummy-events';
+import { DUMMY_EVENTS, isBookable } from '@/data/dummy-events';
 import { formatDate, formatDateTime, offsetToDate } from '@/data/schedule';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useNow } from '@/hooks/use-now';
 
 // 자유석이라 좌석 지정은 없고, 인원(매수)만 고른다. 데모라 1~4매로 제한한다.
 const MIN_QUANTITY = 1;
@@ -33,6 +34,7 @@ export default function CheckoutScreen() {
   const theme: ThemeColors = colorScheme === 'dark' ? Theme.dark : Theme.light;
 
   const { add, bookings } = useBookings();
+  const now = useNow();
 
   const event = DUMMY_EVENTS.find((item) => item.id === id);
 
@@ -53,8 +55,12 @@ export default function CheckoutScreen() {
   }
 
   // 내가 실제로 관람할 날짜 (전시는 기간형이라 카탈로그 날짜와 다르다 — bookingOffsetDaysFor 참고)
-  const showAt = offsetToDate(bookingOffsetDaysFor(event), event.time);
+  const showAt = offsetToDate(bookingOffsetDaysFor(event), event.time, now);
   const whenText = event.time ? formatDateTime(showAt) : formatDate(showAt);
+
+  // 목록에서 걸러지지만, 화면을 열어둔 사이 공연 시각이 지나거나 딥링크로 바로 들어올 수 있어
+  // 여기서도 예매 가능 여부를 확인한다. 불가하면 결제 버튼을 막는다.
+  const bookable = isBookable(event, now);
 
   // 금액: 원가 → (쿠폰 적용 시) 10% 할인 → 결제금액
   const originalPrice = event.price * quantity;
@@ -68,7 +74,7 @@ export default function CheckoutScreen() {
 
   // "테스트 결제하기": 실제 예매를 만들고(인원·쿠폰 포함), 완료를 알린 뒤 예매 목록으로 돌아간다.
   function handlePay() {
-    if (!event) {
+    if (!event || !bookable) {
       return;
     }
     // 쿠폰을 적용했으면 그 쿠폰 id를 함께 넘긴다 → 예매에 기록되고 쿠폰이 '사용완료'가 된다
@@ -181,11 +187,14 @@ export default function CheckoutScreen() {
         </View>
       </ScrollView>
 
-      {/* 하단 고정 결제 버튼 */}
+      {/* 하단 고정 결제 버튼. 예매 마감(지난 공연/종료된 전시)이면 막고 안내한다. */}
       <View style={[styles.bottomBar, { backgroundColor: theme.background }]}>
-        <Pressable style={styles.payButton} onPress={handlePay}>
+        <Pressable
+          style={[styles.payButton, !bookable && styles.payButtonDisabled]}
+          onPress={handlePay}
+          disabled={!bookable}>
           <Text style={styles.payButtonText}>
-            {totalPrice.toLocaleString('ko-KR')}원 테스트 결제하기
+            {bookable ? `${totalPrice.toLocaleString('ko-KR')}원 테스트 결제하기` : '예매 마감된 공연이에요'}
           </Text>
         </Pressable>
       </View>
@@ -397,6 +406,9 @@ const styles = StyleSheet.create({
     borderRadius: 8, // radius-button
     paddingVertical: 16,
     alignItems: 'center',
+  },
+  payButtonDisabled: {
+    opacity: 0.4,
   },
   payButtonText: {
     fontFamily: Fonts.medium,

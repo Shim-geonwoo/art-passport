@@ -24,6 +24,7 @@ import { Fonts } from '@/constants/fonts';
 import { useBookings } from '@/contexts/bookings';
 import { DerivedBooking, deriveBoardingPasses } from '@/data/dummy-bookings';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useNow } from '@/hooks/use-now';
 
 // 카드 스택 한 칸의 크기 (docs/design-system.md 8-1: 270 x 380)
 const CARD_WIDTH = 270;
@@ -149,7 +150,7 @@ export default function BoardingPassScreen() {
   const ticketMode = getDemoTicketMode();
 
   // "지금" 시각을 화면이 처음 열릴 때 한 번만 고정한다 (렌더링 중간에 결과가 안 바뀌게)
-  const [now] = useState(() => new Date());
+  const now = useNow();
 
   // 앱 전체가 공유하는 예매 목록 (앱 최상단 BookingsProvider)
   const { bookings } = useBookings();

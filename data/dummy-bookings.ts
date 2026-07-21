@@ -107,7 +107,8 @@ export type DerivedBooking = BookingItem & {
 export function deriveBooking(booking: BookingItem, now: Date = new Date()): DerivedBooking {
   const event = DUMMY_EVENTS.find((e) => e.id === booking.eventId);
   if (!event) {
-    // 더미 데이터 정합성 오류 — eventId 오타 등. 조용히 넘기지 않고 바로 알린다.
+    // 여기 오면 안 된다: 없는 event를 가리키는 예매는 deriveAllBookings가 미리 걸러낸다.
+    // 그래도 남는 최후 방어선 — 혹시 deriveBooking을 직접 호출하다 정합성 오류가 나면 알린다.
     throw new Error(`booking ${booking.id}이 없는 event(${booking.eventId})를 가리킵니다.`);
   }
 
@@ -161,7 +162,15 @@ export function deriveAllBookings(
   bookings: BookingItem[],
   now: Date = new Date()
 ): DerivedBooking[] {
-  return bookings.map((b) => deriveBooking(b, now));
+  return (
+    bookings
+      // 저장된 예매(AsyncStorage)가 지금 카탈로그에 없는 event를 가리킬 수 있다:
+      // 이벤트 삭제·개편, 또는 옛 저장본을 새 앱에서 열었을 때. 그런 예매는 화면에 그릴 수
+      // 없으니 조용히 건너뛴다. 원본은 저장소에 그대로 남으므로, 그 event가 다시 생기면
+      // 자동으로 되살아난다. (이 필터가 없으면 deriveBooking이 throw해서 전 화면이 죽는다)
+      .filter((b) => DUMMY_EVENTS.some((e) => e.id === b.eventId))
+      .map((b) => deriveBooking(b, now))
+  );
 }
 
 // 마이페이지 "예매 내역" 탭용: 상태별로 묶어서 반환

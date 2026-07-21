@@ -15,6 +15,7 @@ import { Fonts } from '@/constants/fonts';
 import { useBookings } from '@/contexts/bookings';
 import { Coupon, CouponStatus, deriveCoupons, passportPageInfo, STAMPS_PER_PAGE } from '@/data/dummy-bookings';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useNow } from '@/hooks/use-now';
 
 // 쿠폰 상태별 뱃지 색 (사용가능=골드, 사용완료/만료=회색)
 const COUPON_STATUS_COLOR: Record<CouponStatus, string> = {
@@ -31,7 +32,7 @@ export default function RewardsScreen() {
   const colorScheme = useColorScheme();
   const theme: ThemeColors = colorScheme === 'dark' ? Theme.dark : Theme.light;
 
-  const [now] = useState(() => new Date());
+  const now = useNow();
   const [couponFilter, setCouponFilter] = useState<CouponFilter>('전체');
 
   const { bookings } = useBookings();

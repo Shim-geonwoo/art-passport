@@ -10,7 +10,7 @@
 // events = "예매할 수 있는 목록"일 뿐이다. "내가 예매한 것"은 data/dummy-bookings.ts에 따로 있다.
 
 import { Genre } from '@/constants/colors';
-import { formatDate, formatDateTime, offsetToDate } from '@/data/schedule';
+import { formatDate, formatDateTime, offsetToDate, startOfToday } from '@/data/schedule';
 
 // docs/data-structure.md의 events 테이블 칸을 참고한 타입
 // (poster_url은 실제 이미지가 없어서 지금은 카테고리 색 박스로 대체하고, 필드 자체는 만들지 않는다)
@@ -36,6 +36,21 @@ export function formatEventSchedule(event: EventItem, now: Date = new Date()): s
     return `${formatDate(start)} ~ ${formatDate(end)}`;
   }
   return event.time ? formatDateTime(start) : formatDate(start);
+}
+
+// 지금 이 이벤트를 예매할 수 있는가.
+// - 전시(기간형): 종료일이 아직 안 지났으면(오늘 포함) 예매 가능.
+// - 공연(회차형): 공연 시작 시각이 아직 안 지났으면 예매 가능.
+// 이걸로 목록에서 지난/종료된 이벤트를 감춰, "지난 공연을 예매하면 즉시 관람완료가 되는"
+// 이상한 상황을 막는다. (예매 화면·결제 화면 공용)
+export function isBookable(event: EventItem, now: Date = new Date()): boolean {
+  if (event.offsetEndDays != null) {
+    // 전시: 종료일(자정 기준)이 오늘 이후면 가능
+    const end = offsetToDate(event.offsetEndDays, undefined, now);
+    return startOfToday(end).getTime() >= startOfToday(now).getTime();
+  }
+  // 공연: 시작 시각이 아직 미래면 가능
+  return offsetToDate(event.offsetDays, event.time, now).getTime() > now.getTime();
 }
 
 export const DUMMY_EVENTS: EventItem[] = [

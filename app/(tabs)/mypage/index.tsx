@@ -5,7 +5,6 @@
 
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
-import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -14,6 +13,7 @@ import { Fonts } from '@/constants/fonts';
 import { useBookings } from '@/contexts/bookings';
 import { deriveAllBookings, deriveCoupons, passportPageInfo } from '@/data/dummy-bookings';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useNow } from '@/hooks/use-now';
 
 const NICKNAME = '심건우';
 
@@ -21,7 +21,7 @@ export default function MyPageHomeScreen() {
   const colorScheme = useColorScheme();
   const theme: ThemeColors = colorScheme === 'dark' ? Theme.dark : Theme.light;
 
-  const [now] = useState(() => new Date());
+  const now = useNow();
 
   // 메뉴 옆에 살짝 보여줄 요약값 계산
   const { bookings } = useBookings();

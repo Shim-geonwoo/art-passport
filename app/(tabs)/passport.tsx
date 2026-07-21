@@ -21,6 +21,7 @@ import { useBookings } from '@/contexts/bookings';
 import { deriveStamps, Stamp, STAMPS_PER_PAGE } from '@/data/dummy-bookings';
 import { formatDate } from '@/data/schedule';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useNow } from '@/hooks/use-now';
 
 // 여권 한 페이지에 들어가는 스탬프 칸 개수 (3x3 고정, 항상 이만큼 그린다)
 const TOTAL_STAMP_SLOTS = STAMPS_PER_PAGE; // 9
@@ -45,8 +46,8 @@ export default function PassportScreen() {
   // 이 화면 배경: 다크는 Figma 색(#2C2C2E), 라이트는 공통 흰색
   const screenBackground = colorScheme === 'dark' ? PASSPORT_BG_DARK : Colors.surface;
 
-  // "지금" 시각을 화면이 처음 열릴 때 한 번만 고정한다
-  const [now] = useState(() => new Date());
+  // "지금" 시각. 주기적으로 갱신돼서, 켜 둔 채 관람 시각이 지나면 스탬프가 새로 뜬다.
+  const now = useNow();
 
   // 지금 보고 있는 여권 페이지 (1부터). 이전/다음 버튼이나 "리워드함으로 가기"로 바뀐다.
   const [currentPage, setCurrentPage] = useState(1);
