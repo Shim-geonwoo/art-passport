@@ -16,12 +16,16 @@ import { BackHeader } from '@/components/back-header';
 import { GenreBadge } from '@/components/genre-badge';
 import { Colors, Theme, ThemeColors } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
+import { useAuth } from '@/contexts/auth';
 import { useBookings } from '@/contexts/bookings';
-import { bookingOffsetDaysFor, COUPON_DISCOUNT_RATE, firstUsableCoupon } from '@/data/dummy-bookings';
-import { DUMMY_EVENTS, isBookable } from '@/data/dummy-events';
-import { formatDate, formatDateTime, offsetToDate } from '@/data/schedule';
+import { useEvents } from '@/contexts/events';
+import { COUPON_DISCOUNT_RATE } from '@/data/bookings';
+import { markCouponUsed } from '@/data/coupons';
+import { isBookable, pickWatchedAt } from '@/data/events';
+import { formatDate, formatDateTime } from '@/data/schedule';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useNow } from '@/hooks/use-now';
+import { supabase } from '@/lib/supabase';
 
 // 자유석이라 좌석 지정은 없고, 인원(매수)만 고른다. 데모라 1~4매로 제한한다.
 const MIN_QUANTITY = 1;
@@ -33,17 +37,30 @@ export default function CheckoutScreen() {
   const colorScheme = useColorScheme();
   const theme: ThemeColors = colorScheme === 'dark' ? Theme.dark : Theme.light;
 
-  const { add, bookings } = useBookings();
+  const { user } = useAuth();
+  const { events, isLoading: eventsLoading } = useEvents();
+  const { coupons, refresh } = useBookings();
   const now = useNow();
 
-  const event = DUMMY_EVENTS.find((item) => item.id === id);
+  const event = events.find((item) => item.id === id);
 
   // 인원(매수). − / + 버튼으로 1~4 사이에서 조절한다.
   const [quantity, setQuantity] = useState(MIN_QUANTITY);
 
   // 지금 쓸 수 있는 쿠폰 1장(있으면). 있으면 기본으로 적용해 둔다(혜택이라 사용자가 원할 가능성이 높다).
-  const usableCoupon = firstUsableCoupon(bookings);
+  // (쿠폰 자동 발급 로직은 아직 없어서, 실제 계정엔 당분간 쿠폰이 없는 게 정상이다)
+  const usableCoupon = coupons.find((c) => c.status === '사용가능') ?? null;
   const [applyCoupon, setApplyCoupon] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  if (eventsLoading) {
+    return (
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top']}>
+        <BackHeader title="결제" color={theme.text} />
+        <Text style={[styles.notFound, { color: theme.text }]}>불러오는 중...</Text>
+      </SafeAreaView>
+    );
+  }
 
   if (!event) {
     return (
@@ -54,9 +71,9 @@ export default function CheckoutScreen() {
     );
   }
 
-  // 내가 실제로 관람할 날짜 (전시는 기간형이라 카탈로그 날짜와 다르다 — bookingOffsetDaysFor 참고)
-  const showAt = offsetToDate(bookingOffsetDaysFor(event), event.time, now);
-  const whenText = event.time ? formatDateTime(showAt) : formatDate(showAt);
+  // 내가 실제로 관람할 날짜 (전시는 기간형이라 카탈로그 날짜와 다르다 — pickWatchedAt 참고)
+  const watchedAt = pickWatchedAt(event, now);
+  const whenText = event.showEndAt ? formatDate(watchedAt) : formatDateTime(watchedAt);
 
   // 목록에서 걸러지지만, 화면을 열어둔 사이 공연 시각이 지나거나 딥링크로 바로 들어올 수 있어
   // 여기서도 예매 가능 여부를 확인한다. 불가하면 결제 버튼을 막는다.
@@ -72,13 +89,43 @@ export default function CheckoutScreen() {
     setQuantity((prev) => Math.min(MAX_QUANTITY, Math.max(MIN_QUANTITY, prev + delta)));
   }
 
-  // "테스트 결제하기": 실제 예매를 만들고(인원·쿠폰 포함), 완료를 알린 뒤 예매 목록으로 돌아간다.
-  function handlePay() {
-    if (!event || !bookable) {
+  // "테스트 결제하기": bookings 테이블에 실제로 예매 1건을 insert하고, 완료를 알린 뒤 예매 목록으로 돌아간다.
+  async function handlePay() {
+    if (!event || !bookable || !user || isSubmitting) {
       return;
     }
-    // 쿠폰을 적용했으면 그 쿠폰 id를 함께 넘긴다 → 예매에 기록되고 쿠폰이 '사용완료'가 된다
-    add(event, quantity, couponApplied ? usableCoupon.id : undefined);
+
+    setIsSubmitting(true);
+    // 쿠폰을 적용했으면 그 쿠폰 id를 함께 저장한다
+    const { error: insertError } = await supabase.from('bookings').insert({
+      user_id: user.id,
+      event_id: event.id,
+      watched_at: watchedAt.toISOString(),
+      quantity,
+      used_coupon_id: couponApplied ? usableCoupon!.id : null,
+      original_price: originalPrice,
+      total_price: totalPrice,
+    });
+
+    if (insertError) {
+      setIsSubmitting(false);
+      const message = '결제 처리 중 문제가 생겼어요. 잠시 후 다시 시도해주세요.';
+      if (Platform.OS === 'web') {
+        window.alert(message);
+      } else {
+        Alert.alert('결제 실패', message);
+      }
+      return;
+    }
+
+    // 쿠폰을 썼으면 사용완료로 표시해둔다 (본인 소유 쿠폰인지는 DB 함수가 검증한다)
+    if (couponApplied && usableCoupon) {
+      await markCouponUsed(usableCoupon.id);
+    }
+
+    // 보딩패스·여권·마이페이지가 방금 만든 예매를 바로 보게 한다
+    await refresh();
+    setIsSubmitting(false);
 
     const couponLine = couponApplied ? `\n쿠폰 ${COUPON_DISCOUNT_RATE}% 할인 적용` : '';
     const detail = `${event.title}\n${whenText} · ${event.venueName}\n${SEAT_INFO} ${quantity}매 · ${totalPrice.toLocaleString('ko-KR')}원${couponLine}`;
@@ -190,11 +237,15 @@ export default function CheckoutScreen() {
       {/* 하단 고정 결제 버튼. 예매 마감(지난 공연/종료된 전시)이면 막고 안내한다. */}
       <View style={[styles.bottomBar, { backgroundColor: theme.background }]}>
         <Pressable
-          style={[styles.payButton, !bookable && styles.payButtonDisabled]}
+          style={[styles.payButton, (!bookable || isSubmitting) && styles.payButtonDisabled]}
           onPress={handlePay}
-          disabled={!bookable}>
+          disabled={!bookable || isSubmitting}>
           <Text style={styles.payButtonText}>
-            {bookable ? `${totalPrice.toLocaleString('ko-KR')}원 테스트 결제하기` : '예매 마감된 공연이에요'}
+            {!bookable
+              ? '예매 마감된 공연이에요'
+              : isSubmitting
+                ? '처리 중...'
+                : `${totalPrice.toLocaleString('ko-KR')}원 테스트 결제하기`}
           </Text>
         </Pressable>
       </View>

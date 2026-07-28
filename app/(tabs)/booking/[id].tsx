@@ -5,13 +5,14 @@
 
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GenreBadge } from '@/components/genre-badge';
 import { CategoryColors, Colors, Theme } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
-import { DUMMY_EVENTS, formatEventSchedule } from '@/data/dummy-events';
+import { useEvents } from '@/contexts/events';
+import { formatEventSchedule } from '@/data/events';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export default function BookingDetailScreen() {
@@ -19,7 +20,8 @@ export default function BookingDetailScreen() {
   const colorScheme = useColorScheme();
   const theme = colorScheme === 'dark' ? Theme.dark : Theme.light;
 
-  const event = DUMMY_EVENTS.find((item) => item.id === id);
+  const { events, isLoading } = useEvents();
+  const event = events.find((item) => item.id === id);
 
   // "예매하기"를 누르면 결제(checkout) 화면으로 넘어간다. 실제 예매 생성은 거기서 한다.
   // checkout은 고정 경로라, 어떤 공연인지는 쿼리 파라미터(id)로 넘긴다.
@@ -30,7 +32,16 @@ export default function BookingDetailScreen() {
     router.push({ pathname: '/booking/checkout', params: { id: event.id } });
   }
 
-  // 잘못된 id로 들어온 경우(더미 데이터에 없음) 안내만 하고 뒤로가기를 유도한다
+  // 아직 카탈로그를 불러오는 중이면 "찾을 수 없음"으로 착각하지 않게 로딩 문구를 먼저 보여준다
+  if (isLoading) {
+    return (
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]}>
+        <Text style={[styles.notFoundText, { color: theme.text }]}>불러오는 중...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  // 잘못된 id로 들어온 경우(카탈로그에 없음) 안내만 하고 뒤로가기를 유도한다
   if (!event) {
     return (
       <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]}>
@@ -42,9 +53,13 @@ export default function BookingDetailScreen() {
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top']}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* 상단 포스터. 실제 이미지가 없어서 카테고리 색 박스로 대체한다 */}
+        {/* 상단 포스터. posterUrl이 있으면 그 이미지를, 없으면 카테고리 색 박스로 대체한다 */}
         <View style={[styles.poster, { backgroundColor: CategoryColors[event.genre] }]}>
-          <Ionicons name="image-outline" size={48} color={Colors.textOnColor} style={styles.posterIcon} />
+          {event.posterUrl ? (
+            <Image source={{ uri: event.posterUrl }} style={styles.posterImage} resizeMode="cover" />
+          ) : (
+            <Ionicons name="image-outline" size={48} color={Colors.textOnColor} style={styles.posterIcon} />
+          )}
 
           {/* 뒤로가기 버튼: 포스터 위에 겹쳐서 배치 */}
           <Pressable style={styles.backButton} onPress={() => router.back()}>
@@ -61,6 +76,16 @@ export default function BookingDetailScreen() {
             <LabelValue label="날짜" value={formatEventSchedule(event)} theme={theme} />
             <LabelValue label="장소" value={event.venueName} theme={theme} />
             <LabelValue label="가격" value={`${event.price.toLocaleString('ko-KR')}원`} theme={theme} />
+          </View>
+
+          {/* 상세 내용. 더미 카탈로그엔 아직 소개글이 없어서(description undefined) 빈 상태 문구로 대신한다 */}
+          <View style={styles.descriptionBlock}>
+            <Text style={[styles.descriptionLabel, { color: theme.text }]}>상세 내용</Text>
+            <Text style={[styles.descriptionText, { color: theme.textSecondary }]}>
+              {event.description && event.description.length > 0
+                ? event.description
+                : '상세 내용이 준비 중이에요.'}
+            </Text>
           </View>
         </View>
       </ScrollView>
@@ -117,6 +142,10 @@ const styles = StyleSheet.create({
   posterIcon: {
     opacity: 0.6,
   },
+  posterImage: {
+    width: '100%',
+    height: '100%',
+  },
   backButton: {
     position: 'absolute',
     top: 12,
@@ -153,6 +182,21 @@ const styles = StyleSheet.create({
   value: {
     fontFamily: Fonts.regular,
     fontSize: 15, // Value 크기
+  },
+
+  // 상세 내용
+  descriptionBlock: {
+    marginTop: 20, // lg
+    gap: 8, // sm
+  },
+  descriptionLabel: {
+    fontFamily: Fonts.medium,
+    fontSize: 15,
+  },
+  descriptionText: {
+    fontFamily: Fonts.regular,
+    fontSize: 14,
+    lineHeight: 22,
   },
 
   // 하단 고정 예매하기 버튼

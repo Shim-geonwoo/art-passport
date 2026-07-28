@@ -7,13 +7,14 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Link } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GenreBadge } from '@/components/genre-badge';
 import { CategoryColors, Colors, Genre, Theme } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
-import { DUMMY_EVENTS, EventItem, formatEventSchedule, isBookable } from '@/data/dummy-events';
+import { useEvents } from '@/contexts/events';
+import { EventItem, formatEventSchedule, isBookable } from '@/data/events';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useNow } from '@/hooks/use-now';
 
@@ -28,9 +29,10 @@ export default function BookingListScreen() {
   const [selectedGenre, setSelectedGenre] = useState<Genre>(GENRES[0]);
 
   const now = useNow();
+  const { events, isLoading, error } = useEvents();
 
   // 선택한 카테고리 중, 아직 예매 가능한(지나거나 종료되지 않은) 이벤트만 보여준다.
-  const filteredEvents = DUMMY_EVENTS.filter(
+  const filteredEvents = events.filter(
     (event) => event.genre === selectedGenre && isBookable(event, now)
   );
 
@@ -55,14 +57,20 @@ export default function BookingListScreen() {
       {/* 선택된 카테고리의 공연 목록 (세로 스크롤) */}
       {/* flex:1로 탭 바를 뺀 나머지 세로 공간을 차지하고, 그 안에서만 스크롤되게 한다 */}
       <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
-        {filteredEvents.map((event, index) => (
-          <EventCard
-            key={event.id}
-            event={event}
-            theme={theme}
-            showDivider={index !== filteredEvents.length - 1}
-          />
-        ))}
+        {error ? (
+          <Text style={[styles.statusText, { color: theme.textSecondary }]}>{error}</Text>
+        ) : isLoading ? (
+          <Text style={[styles.statusText, { color: theme.textSecondary }]}>불러오는 중...</Text>
+        ) : (
+          filteredEvents.map((event, index) => (
+            <EventCard
+              key={event.id}
+              event={event}
+              theme={theme}
+              showDivider={index !== filteredEvents.length - 1}
+            />
+          ))
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -116,9 +124,13 @@ function EventCard({
     <Link href={{ pathname: '/booking/[id]', params: { id: event.id } }} asChild>
       <Pressable>
         <View style={styles.card}>
-          {/* 포스터 자리. 실제 이미지가 없어서 카테고리 색 박스로 대체한다 */}
+          {/* 포스터 자리. posterUrl이 있으면 그 이미지를, 없으면 카테고리 색 박스로 대체한다 */}
           <View style={[styles.poster, { backgroundColor: CategoryColors[event.genre] }]}>
-            <Ionicons name="image-outline" size={20} color={Colors.textOnColor} style={styles.posterIcon} />
+            {event.posterUrl ? (
+              <Image source={{ uri: event.posterUrl }} style={styles.posterImage} resizeMode="cover" />
+            ) : (
+              <Ionicons name="image-outline" size={20} color={Colors.textOnColor} style={styles.posterIcon} />
+            )}
           </View>
 
           <View style={styles.cardInfo}>
@@ -173,6 +185,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 24, // xl
   },
+  statusText: {
+    fontFamily: Fonts.regular,
+    fontSize: 13,
+    textAlign: 'center',
+    paddingVertical: 32,
+  },
   cardTouchable: {
     // Link asChild가 Text를 클릭 가능하게 감싸는 자리. 자체 텍스트 스타일은 없다
   },
@@ -185,11 +203,16 @@ const styles = StyleSheet.create({
     width: 60,
     height: 80,
     borderRadius: 12, // radius-md — 목록 카드 이미지 자리 (design-system.md 5. 모서리·테두리)
+    overflow: 'hidden', // 포스터 이미지가 둥근 모서리 밖으로 안 나가게
     alignItems: 'center',
     justifyContent: 'center',
   },
   posterIcon: {
     opacity: 0.6,
+  },
+  posterImage: {
+    width: '100%',
+    height: '100%',
   },
   cardInfo: {
     flex: 1,

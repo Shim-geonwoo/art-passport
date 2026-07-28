@@ -22,7 +22,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { CategoryColors, CategoryIcons, CategoryLabels, Colors, Genre, Theme } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
 import { useBookings } from '@/contexts/bookings';
-import { DerivedBooking, deriveBoardingPasses } from '@/data/dummy-bookings';
+import { DerivedBooking, deriveBoardingPasses } from '@/data/bookings';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useNow } from '@/hooks/use-now';
 
@@ -97,14 +97,6 @@ type Booking = {
   capacity: number; // 인원 수
 };
 
-// 데모 스위치: 지금은 진짜 예매 데이터가 없어서, 아래 return 값을 바꿔가며
-// 두 가지 상태를 확인할 수 있게 해뒀다.
-// 'some' = 더미 티켓 여러 장 보여주기 (겹쳐 쌓인 모습 확인)
-// 'none' = 표시할 티켓이 없는 빈 화면 확인
-function getDemoTicketMode(): 'some' | 'none' {
-  return 'some'; // <- 'none'으로 바꾸면 빈 월렛 화면을 볼 수 있다
-}
-
 // 숫자를 항상 두 자리로 만든다 (예: 3 -> "03")
 function pad2(value: number): string {
   return String(value).padStart(2, '0');
@@ -118,7 +110,7 @@ function formatTime(date: Date): string {
   return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
 }
 
-// 중앙 데이터(data/dummy-bookings.ts)에서 파생된 예매 한 건을,
+// 중앙 데이터(data/bookings.ts)에서 파생된 예매 한 건을,
 // 이 화면의 카드가 그릴 수 있는 표현용 형태로 옮긴다.
 // "지금 보딩패스로 보여줄지"의 판단(3일 이내)과 정렬은 deriveBoardingPasses가 이미 해준다.
 function toCardBooking(booking: DerivedBooking): Booking {
@@ -130,8 +122,8 @@ function toCardBooking(booking: DerivedBooking): Booking {
     passengerName: PASSENGER_NAME,
     showAt: booking.showAt,
     dateText: formatDate(booking.showAt),
-    // 전시처럼 시각이 없는 경우엔 시간 칸을 비워 둔다 (보딩패스 데모엔 시각 있는 공연만 뜬다)
-    timeText: booking.event.time ? formatTime(booking.showAt) : '',
+    // 전시(기간형, showEndAt 있음)는 시각이 없는 관람이라 시간 칸을 비워 둔다
+    timeText: booking.event.showEndAt ? '' : formatTime(booking.showAt),
     seatInfo: SEAT_INFO,
     capacity: booking.quantity, // 결제 화면에서 고른 인원 (deriveBooking이 1 이상으로 정규화해 둠)
   };
@@ -147,8 +139,6 @@ export default function BoardingPassScreen() {
   const headerColor = colorScheme === 'light' ? Colors.textPrimary : Colors.textOnColor;
   const headerPlaceholderColor = colorScheme === 'light' ? Theme.light.textSecondary : Theme.dark.textSecondary;
 
-  const ticketMode = getDemoTicketMode();
-
   // "지금" 시각을 화면이 처음 열릴 때 한 번만 고정한다 (렌더링 중간에 결과가 안 바뀌게)
   const now = useNow();
 
@@ -157,9 +147,7 @@ export default function BoardingPassScreen() {
 
   // 보딩패스로 보여줄 예매만(관람 3일 이내) 관람일 가까운 순으로 이미 걸러져 온다.
   // 취소한 예매는 status가 '취소'라 deriveBoardingPasses가 알아서 빼준다.
-  // 'none' 데모 모드에서는 빈 월렛 화면을 확인할 수 있게 강제로 비운다.
-  const visibleBookings = (ticketMode === 'none' ? [] : deriveBoardingPasses(bookings, now))
-    .map(toCardBooking);
+  const visibleBookings = deriveBoardingPasses(bookings, now).map(toCardBooking);
 
   // 사용자가 카드를 탭해서 만든 앞-뒤 순서. index 0 = 맨 앞 카드.
   // 처음엔 관람일이 가까운 순서를 그대로 쓴다.

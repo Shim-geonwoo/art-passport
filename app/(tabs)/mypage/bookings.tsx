@@ -13,7 +13,7 @@ import { BackHeader } from '@/components/back-header';
 import { Colors, Theme, ThemeColors } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
 import { useBookings } from '@/contexts/bookings';
-import { BookingStatus, deriveAllBookings, DerivedBooking } from '@/data/dummy-bookings';
+import { BookingStatus, deriveAllBookings, DerivedBooking } from '@/data/bookings';
 import { formatDate, formatDateTime } from '@/data/schedule';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useNow } from '@/hooks/use-now';
@@ -25,9 +25,9 @@ const BOOKING_STATUS_COLOR: Record<BookingStatus, string> = {
   취소: Colors.textSecondary,
 };
 
-// 상태 필터 선택지 ('전체' + 세 가지 상태)
-type StatusFilter = '전체' | BookingStatus;
-const STATUS_FILTERS: StatusFilter[] = ['전체', '예매완료', '관람완료', '취소'];
+// 상태 필터 선택지. '전체'는 굳이 안 보여줘도 되어서 뺐다 — 3개가 한 줄에 다 들어간다.
+type StatusFilter = BookingStatus;
+const STATUS_FILTERS: StatusFilter[] = ['예매완료', '관람완료', '취소'];
 
 export default function BookingsScreen() {
   const colorScheme = useColorScheme();
@@ -36,7 +36,7 @@ export default function BookingsScreen() {
   const { bookings } = useBookings();
   const now = useNow();
 
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('전체');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('예매완료');
   const [query, setQuery] = useState('');
 
   // 전체 목록을 관람일 늦은 순으로 정렬. (취소 여부는 deriveAllBookings가 이미 상태에 반영해 준다)
@@ -47,7 +47,7 @@ export default function BookingsScreen() {
   // 상태 필터 + 검색어(제목/장소)로 좁힌다
   const trimmedQuery = query.trim().toLowerCase();
   const filtered = allBookings.filter((booking) => {
-    const statusOk = statusFilter === '전체' || booking.status === statusFilter;
+    const statusOk = booking.status === statusFilter;
     const searchOk =
       trimmedQuery === '' ||
       booking.event.title.toLowerCase().includes(trimmedQuery) ||
@@ -59,17 +59,11 @@ export default function BookingsScreen() {
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top']}>
       <BackHeader title="예매관리" color={theme.text} />
 
-      {/* 상태 필터 칩 (가로 스크롤). 각 칩에 건수도 함께 보여준다 */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.chipBar}
-        contentContainerStyle={styles.chipRow}>
+      {/* 상태 필터 칩. 3개뿐이라 가로 스크롤 없이 한 줄에 다 보여준다 (가로 스크롤 + 숨긴 스크롤바 조합은
+          마지막 칩이 화면 밖으로 잘려 보이는 문제가 있었다). 각 칩에 건수도 함께 보여준다 */}
+      <View style={styles.chipRow}>
         {STATUS_FILTERS.map((status) => {
-          const count =
-            status === '전체'
-              ? allBookings.length
-              : allBookings.filter((b) => b.status === status).length;
+          const count = allBookings.filter((b) => b.status === status).length;
           const selected = status === statusFilter;
           return (
             <Pressable
@@ -90,7 +84,7 @@ export default function BookingsScreen() {
             </Pressable>
           );
         })}
-      </ScrollView>
+      </View>
 
       {/* 검색창 (제목/장소) */}
       <View style={[styles.search, { borderColor: theme.dashedBorder }]}>
@@ -129,7 +123,8 @@ export default function BookingsScreen() {
 
 // 예매 한 줄: 누르면 예매 상세로 이동한다
 function BookingRow({ booking, theme }: { booking: DerivedBooking; theme: ThemeColors }) {
-  const whenText = booking.event.time ? formatDateTime(booking.showAt) : formatDate(booking.showAt);
+  // 전시(기간형, showEndAt 있음)는 시각이 없는 관람이라 날짜만 보여준다
+  const whenText = booking.event.showEndAt ? formatDate(booking.showAt) : formatDateTime(booking.showAt);
 
   return (
     <Pressable
@@ -158,9 +153,6 @@ const styles = StyleSheet.create({
   },
 
   // 상태 필터 칩
-  chipBar: {
-    flexGrow: 0, // 가로 ScrollView가 세로로 늘어나지 않게 고정
-  },
   chipRow: {
     flexDirection: 'row',
     alignItems: 'center', // 칩이 세로로 늘어나 잘리지 않게 정렬

@@ -1,7 +1,7 @@
 // 마이페이지 > 리워드 (하위 화면)
 //
 // 여권 스탬프 진행도(+ 여권 바로가기)와 보유 쿠폰(상태 필터)을 보여준다.
-// 데이터는 data/dummy-bookings.ts에서 파생받는다.
+// 스탬프 진행도는 data/bookings.ts에서, 쿠폰은 실제 coupons 테이블(data/coupons.ts)에서 받는다.
 
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
@@ -13,7 +13,8 @@ import { BackHeader } from '@/components/back-header';
 import { Colors, Theme, ThemeColors } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
 import { useBookings } from '@/contexts/bookings';
-import { Coupon, CouponStatus, deriveCoupons, passportPageInfo, STAMPS_PER_PAGE } from '@/data/dummy-bookings';
+import { passportPageInfo, STAMPS_PER_PAGE } from '@/data/bookings';
+import { Coupon, CouponStatus } from '@/data/coupons';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useNow } from '@/hooks/use-now';
 
@@ -24,21 +25,20 @@ const COUPON_STATUS_COLOR: Record<CouponStatus, string> = {
   만료: Colors.textSecondary,
 };
 
-// 쿠폰 상태 필터 ('전체' + 세 가지 상태)
-type CouponFilter = '전체' | CouponStatus;
-const COUPON_FILTERS: CouponFilter[] = ['전체', '사용가능', '사용완료', '만료'];
+// 쿠폰 상태 필터. '전체'는 굳이 안 보여줘도 되어서 뺐다.
+type CouponFilter = CouponStatus;
+const COUPON_FILTERS: CouponFilter[] = ['사용가능', '사용완료', '만료'];
 
 export default function RewardsScreen() {
   const colorScheme = useColorScheme();
   const theme: ThemeColors = colorScheme === 'dark' ? Theme.dark : Theme.light;
 
   const now = useNow();
-  const [couponFilter, setCouponFilter] = useState<CouponFilter>('전체');
+  const [couponFilter, setCouponFilter] = useState<CouponFilter>('사용가능');
 
-  const { bookings } = useBookings();
+  const { bookings, coupons: allCoupons } = useBookings();
 
-  const allCoupons = deriveCoupons(bookings, now);
-  const coupons = allCoupons.filter((c) => couponFilter === '전체' || c.status === couponFilter);
+  const coupons = allCoupons.filter((c) => c.status === couponFilter);
 
   const pageInfo = passportPageInfo(bookings, now);
   // 현재 페이지에 채워진 스탬프 수 (딱 9의 배수면 9/9로 표시)
@@ -73,8 +73,7 @@ export default function RewardsScreen() {
 
         <View style={styles.chipRow}>
           {COUPON_FILTERS.map((status) => {
-            const count =
-              status === '전체' ? allCoupons.length : allCoupons.filter((c) => c.status === status).length;
+            const count = allCoupons.filter((c) => c.status === status).length;
             const selected = status === couponFilter;
             return (
               <Pressable

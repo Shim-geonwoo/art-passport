@@ -13,7 +13,7 @@ import { GenreBadge } from '@/components/genre-badge';
 import { Colors, Theme, ThemeColors } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
 import { useBookings } from '@/contexts/bookings';
-import { BookingStatus, deriveAllBookings } from '@/data/dummy-bookings';
+import { BookingStatus, deriveAllBookings } from '@/data/bookings';
 import { formatDateTime, formatDate } from '@/data/schedule';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useNow } from '@/hooks/use-now';
@@ -48,15 +48,31 @@ export default function BookingDetailScreen() {
     );
   }
 
-  const whenText = booking.event.time ? formatDateTime(booking.showAt) : formatDate(booking.showAt);
+  // 전시(기간형, showEndAt 있음)는 시각이 없는 관람이라 날짜만 보여준다
+  const whenText = booking.event.showEndAt ? formatDate(booking.showAt) : formatDateTime(booking.showAt);
   const canCancel = booking.status === '예매완료'; // 관람 전에만 취소 가능
 
-  // "예매 취소하기": 확인 후 취소 처리(Context에 반영). 웹은 Alert.alert가 no-op이라 window.confirm 사용
+  // "예매 취소하기": 확인 후 취소 처리(Context에 반영, 실패하면 안내). 웹은 Alert.alert가 no-op이라 window.confirm 사용
+  async function doCancel() {
+    if (!booking) {
+      return;
+    }
+    try {
+      await cancel(booking.id);
+    } catch {
+      const message = '취소 처리 중 문제가 생겼어요. 잠시 후 다시 시도해주세요.';
+      if (Platform.OS === 'web') {
+        window.alert(message);
+      } else {
+        Alert.alert('취소 실패', message);
+      }
+    }
+  }
+
   function handleCancel() {
     if (!booking) {
       return;
     }
-    const doCancel = () => cancel(booking.id);
     if (Platform.OS === 'web') {
       if (window.confirm('이 예매를 취소할까요?')) {
         doCancel();

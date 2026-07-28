@@ -30,7 +30,8 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# local env files (키가 담긴 실제 .env는 커밋하지 않는다. 예시는 .env.example 참고)
+.env
 .env*.local
 
 # typescript

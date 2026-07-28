@@ -1,108 +1,74 @@
-// "내가 예매한 것" 목록을 앱 전체가 함께 보는 저장소
+// "내가 예매한 것" + "내 쿠폰"을 앱 전체가 함께 보는 저장소 (Supabase 실제 데이터)
 //
 // 예매 탭에서 새로 예매하면 → 마이페이지 예매 내역, 홈의 보딩패스, 여권 스탬프, 쿠폰이
-// 전부 그 한 건을 반영해야 한다. 그래서 목록을 화면마다 따로 갖지 않고 여기 한 곳에 둔다.
+// 전부 그 한 건을 반영해야 한다. 그래서 목록을 화면마다 따로 불러오지 않고 여기 한 곳에서
+// 로그인 상태가 바뀔 때(로그인/로그아웃) 한 번 불러와 공유한다.
 // (docs/data-flow.md의 예매 → 보딩패스 → 스탬프 연쇄)
 //
-// 처음 값은 데모용 DUMMY_BOOKINGS 18건. 여기에 사용자가 예매/취소/쿠폰사용한 결과가 쌓인다.
-// 그 결과를 기기 저장소(AsyncStorage)에 저장해서, 앱을 껐다 켜도 유지된다.
-// (Supabase 연동 전까지의 임시 저장. 웹에서는 localStorage로 동작한다)
+// 예매 생성 자체는 checkout 화면이 Supabase에 직접 insert하고, 끝나면 refresh()를 불러서
+// 이 목록을 최신 상태로 다시 받아온다.
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
-import {
-  BookingItem,
-  bookingOffsetDaysFor,
-  DUMMY_BOOKINGS,
-  nextBookingId,
-} from '@/data/dummy-bookings';
-import { EventItem } from '@/data/dummy-events';
-
-// 저장 키. 저장 형식이 바뀌면 뒤 숫자를 올려 옛 데이터를 무시하게 한다.
-const STORAGE_KEY = 'art-passport.bookings.v1';
+import { useAuth } from '@/contexts/auth';
+import { BookingRow, cancelBooking, fetchBookings } from '@/data/bookings';
+import { Coupon, fetchCoupons, issueDueCoupons } from '@/data/coupons';
 
 type BookingsValue = {
-  bookings: BookingItem[]; // 원천 목록. 화면은 이걸 derive* 함수에 넘겨서 쓴다
-  // 새 예매 1건 추가 (결제하기 버튼). usedCouponId를 넘기면 그 쿠폰이 '사용완료'가 되고 10% 할인된다
-  add: (event: EventItem, quantity?: number, usedCouponId?: string) => BookingItem;
-  cancel: (bookingId: string) => void; // 예매를 취소 처리
-  isCancelled: (bookingId: string) => boolean;
+  bookings: BookingRow[];
+  coupons: Coupon[];
+  isLoading: boolean;
+  refresh: () => Promise<void>; // bookings/coupons를 다시 불러온다 (예매 직후 등)
+  cancel: (bookingId: string) => Promise<void>; // 예매 취소 후 자동으로 refresh까지 한다
 };
 
 const BookingsContext = createContext<BookingsValue | undefined>(undefined);
 
 export function BookingsProvider({ children }: { children: ReactNode }) {
-  const [bookings, setBookings] = useState<BookingItem[]>(DUMMY_BOOKINGS);
-  // 저장소에서 처음 한 번 읽어오는 동안은 true. 다 읽기 전엔 화면을 그리지 않는다
-  // (안 그러면 DUMMY가 잠깐 보였다가 저장본으로 휙 바뀌어 깜빡인다).
+  const { user } = useAuth();
+  const [bookings, setBookings] = useState<BookingRow[]>([]);
+  const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // 1) 앱 시작 시: 저장된 목록이 있으면 불러오고, 없으면 DUMMY_BOOKINGS를 그대로 쓴다.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const saved = await AsyncStorage.getItem(STORAGE_KEY);
-        if (!cancelled && saved) {
-          setBookings(JSON.parse(saved) as BookingItem[]);
-        }
-      } catch {
-        // 읽기 실패(파싱 오류 등)면 그냥 DUMMY로 시작한다. 데모라 조용히 넘어간다.
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // 2) 목록이 바뀔 때마다 저장한다. 단, 처음 읽어오기가 끝난 뒤부터.
-  //    (읽기 전에 저장하면 DUMMY로 저장본을 덮어써 버린다)
-  useEffect(() => {
-    if (isLoading) {
+  const refresh = useCallback(async () => {
+    if (!user) {
+      // 로그아웃 상태면 보여줄 게 없다 (Stack.Protected가 어차피 이 화면들을 안 보여준다)
+      setBookings([]);
+      setCoupons([]);
+      setIsLoading(false);
       return;
     }
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(bookings)).catch(() => {
-      // 저장 실패는 데모에선 무시한다
-    });
-  }, [bookings, isLoading]);
-
-  const value = useMemo<BookingsValue>(() => {
-    // 예매하기: status는 저장하지 않는다. 관람일(offsetDays)만 정해두면
-    // deriveBooking이 "아직 안 지났으니 예매완료"라고 매번 계산해 준다.
-    function add(event: EventItem, quantity: number = 1, usedCouponId?: string): BookingItem {
-      const newBooking: BookingItem = {
-        id: nextBookingId(bookings),
-        eventId: event.id,
-        offsetDays: bookingOffsetDaysFor(event),
-        isCancelled: false,
-        quantity: Math.max(1, Math.floor(quantity)),
-        usedCouponId,
-      };
-      setBookings((prev) => [...prev, newBooking]);
-      return newBooking;
+    setIsLoading(true);
+    try {
+      // 스탬프 9개마다 쿠폰을 발급해야 하면 먼저 발급하고(없으면 아무 일도 안 함), 그다음 최신 목록을 받는다
+      await issueDueCoupons();
+      const [bookingRows, couponRows] = await Promise.all([fetchBookings(), fetchCoupons()]);
+      setBookings(bookingRows);
+      setCoupons(couponRows);
+    } finally {
+      setIsLoading(false);
     }
+  }, [user]);
 
-    // 취소: 목록에서 지우지 않고 isCancelled만 켠다.
-    // (예매 내역에 '취소' 상태로 남아 있어야 하기 때문)
-    function cancel(bookingId: string) {
-      setBookings((prev) =>
-        prev.map((b) => (b.id === bookingId ? { ...b, isCancelled: true } : b))
-      );
-    }
+  // 로그인/로그아웃(=user가 바뀔 때)마다 다시 불러온다
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
 
-    function isCancelled(bookingId: string) {
-      return bookings.some((b) => b.id === bookingId && b.isCancelled);
-    }
+  const cancel = useCallback(
+    async (bookingId: string) => {
+      await cancelBooking(bookingId);
+      await refresh();
+    },
+    [refresh]
+  );
 
-    return { bookings, add, cancel, isCancelled };
-  }, [bookings]);
+  const value = useMemo<BookingsValue>(
+    () => ({ bookings, coupons, isLoading, refresh, cancel }),
+    [bookings, coupons, isLoading, refresh, cancel]
+  );
 
-  // 저장소를 읽는 중엔 아무것도 그리지 않는다 (아주 짧은 순간).
+  // 처음 불러오는 동안엔 아무것도 그리지 않는다 (짧은 순간, 로그인 직후에만 보인다)
   if (isLoading) {
     return null;
   }

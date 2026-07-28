@@ -3,7 +3,7 @@
 // Figma "스탬프 페이지" 시안(다크 배경 #2C2C2E, 3x3 카드 그리드 + 쿠폰/리워드 영역)을 따라 만든다.
 // 규칙 요약 (docs/data-structure.md, docs/data-flow.md):
 // - 여권 한 페이지 = 스탬프 9칸(3x3). 항상 9칸을 그리고, 채운 칸만 스탬프·나머지는 점선 빈 칸.
-// - 관람완료한 예매 하나 = 스탬프 하나 (data/dummy-bookings.ts의 deriveStamps에서 파생).
+// - 관람완료한 예매 하나 = 스탬프 하나 (data/bookings.ts의 deriveStamps에서 파생).
 // - 9칸을 다 채우면 쿠폰 1장이 발급되고, "WE GOT A COUPON!" + "리워드함으로 가기" 버튼이 활성화된다.
 // - "리워드함으로 가기"를 누르면 여권의 다음 페이지로 넘어간다 (스탬프는 계속 다음 장으로 이어짐).
 
@@ -11,14 +11,14 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Rect } from 'react-native-svg';
 
 import { CategoryColors, CategoryIcons, Colors, Theme } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
 import { useBookings } from '@/contexts/bookings';
-import { deriveStamps, Stamp, STAMPS_PER_PAGE } from '@/data/dummy-bookings';
+import { deriveStamps, Stamp, STAMPS_PER_PAGE } from '@/data/bookings';
 import { formatDate } from '@/data/schedule';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useNow } from '@/hooks/use-now';
@@ -183,9 +183,13 @@ function StampCard({ stamp, width, height }: { stamp: Stamp; width: number; heig
   return (
     <View style={[styles.stampCell, { width, height, backgroundColor: categoryColor }]}>
       {/* 포스터 프레임: 카드 너비만큼의 정사각형 창 (Figma 120x120, overflow hidden).
-          실제 포스터 이미지가 없어서 색 배경 + 아이콘으로 대체한다 (포스터=스탬프) */}
+          posterUrl이 있으면 그 포스터를, 없으면 색 배경 + 아이콘으로 대체한다 (포스터=스탬프) */}
       <View style={[styles.posterFrame, { height: width }]}>
-        <Ionicons name="image-outline" size={28} color={Colors.textOnColor} style={styles.posterIcon} />
+        {event.posterUrl ? (
+          <Image source={{ uri: event.posterUrl }} style={styles.posterImage} resizeMode="cover" />
+        ) : (
+          <Ionicons name="image-outline" size={28} color={Colors.textOnColor} style={styles.posterIcon} />
+        )}
       </View>
 
       {/* 하단 정보 띠 (Figma 120x30): 공연장명=우상단(어두움), 장르 아이콘+날짜=좌하단(날짜 흰색) */}
@@ -255,8 +259,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 16, // md
-    marginBottom: 8, // sm
+    paddingVertical: 8, // 페이지 넘기기 버튼까지 스크롤 없이 한 화면에 들어오도록 16 -> 8로 줄임
+    marginBottom: 4, // 8 -> 4
   },
   logo: {
     fontFamily: Fonts.bold,
@@ -270,9 +274,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   // 줄과 줄 사이 세로 간격.
-  // Figma 원본은 47이지만, 그대로 쓰면 폰 화면에서 세로 스크롤이 생겨서 37로 줄였다.
+  // Figma 원본은 47이지만, 그대로 쓰면 폰 화면에서 세로 스크롤이 생겨서 줄였다.
+  // (37 -> 22: 페이지 넘기기 버튼까지 스크롤 없이 한 화면에 들어오게 추가로 더 줄임)
   gridRowGap: {
-    marginBottom: 37,
+    marginBottom: 22,
   },
 
   // 채워진 스탬프 칸
@@ -289,6 +294,10 @@ const styles = StyleSheet.create({
   },
   posterIcon: {
     opacity: 0.6, // "포스터가 들어올 자리"라는 느낌만 주는 워터마크 아이콘
+  },
+  posterImage: {
+    width: '100%',
+    height: '100%',
   },
   // 하단 정보 띠: 카드 높이의 나머지(≈20%, Figma 30px). 요소는 절대좌표로 코너에 배치
   stampFooter: {
@@ -330,8 +339,8 @@ const styles = StyleSheet.create({
   // 9칸 완성 시 쿠폰 + 리워드 영역 (Figma: 네이비 카드 없이 텍스트 + 밝은 파랑 버튼)
   rewardArea: {
     alignItems: 'center',
-    marginTop: 37, // 그리드 줄 간격(37)과 같은 리듬으로 띄워서 WE 문구가 카드와 안 겹치게
-    gap: 20, // WE 문구 ↔ 리워드 버튼 사이
+    marginTop: 16, // 37 -> 16: 페이지 넘기기 버튼까지 스크롤 없이 보이게 줄임
+    gap: 10, // WE 문구 ↔ 리워드 버튼 사이 (20 -> 10)
   },
   // 리워드 영역을 안 보이게 하되 자리(높이)는 그대로 유지해, 페이지 번호 위치를 고정한다
   rewardAreaHidden: {
@@ -339,7 +348,7 @@ const styles = StyleSheet.create({
   },
   couponText: {
     fontFamily: Fonts.bold,
-    fontSize: 30, // Figma: WE GOT A COUPON! 30
+    fontSize: 22, // Figma 원본은 30이지만, 숨겨져도 자리를 차지하므로 줄여서 여유 공간을 확보했다
     textAlign: 'center',
   },
   rewardButton: {
@@ -360,7 +369,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 16, // md
-    marginTop: 32, // 리워드 버튼(또는 그리드)과 페이지 번호 사이 간격
+    marginTop: 14, // 32 -> 14: 페이지 넘기기 버튼까지 스크롤 없이 한 화면에 들어오게 줄임
   },
   pageNumber: {
     fontFamily: Fonts.regular,

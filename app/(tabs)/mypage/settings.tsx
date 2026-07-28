@@ -10,6 +10,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { BackHeader } from '@/components/back-header';
 import { Colors, Theme, ThemeColors } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
+import { useAuth } from '@/contexts/auth';
 import { ThemePreference, useThemePreference } from '@/contexts/theme-preference';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
@@ -24,6 +25,7 @@ export default function SettingsScreen() {
   const theme: ThemeColors = colorScheme === 'dark' ? Theme.dark : Theme.light;
 
   const { preference, setPreference } = useThemePreference();
+  const { signOut } = useAuth();
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top']}>
@@ -58,6 +60,10 @@ export default function SettingsScreen() {
             &apos;시스템&apos;은 기기 설정을 따릅니다.
           </Text>
         </View>
+
+        <Pressable style={[styles.logoutButton, { borderColor: theme.dashedBorder }]} onPress={signOut}>
+          <Text style={[styles.logoutText, { color: theme.textSecondary }]}>로그아웃</Text>
+        </Pressable>
       </ScrollView>
     </SafeAreaView>
   );
@@ -101,5 +107,16 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.regular,
     fontSize: 12,
     paddingTop: 12,
+  },
+  logoutButton: {
+    marginTop: 20, // lg
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  logoutText: {
+    fontFamily: Fonts.medium,
+    fontSize: 14,
   },
 });

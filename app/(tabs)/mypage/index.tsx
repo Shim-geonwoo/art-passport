@@ -10,43 +10,45 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Theme, ThemeColors } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
+import { useAuth } from '@/contexts/auth';
 import { useBookings } from '@/contexts/bookings';
-import { deriveAllBookings, deriveCoupons, passportPageInfo } from '@/data/dummy-bookings';
+import { deriveAllBookings, passportPageInfo } from '@/data/bookings';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useNow } from '@/hooks/use-now';
-
-const NICKNAME = '심건우';
 
 export default function MyPageHomeScreen() {
   const colorScheme = useColorScheme();
   const theme: ThemeColors = colorScheme === 'dark' ? Theme.dark : Theme.light;
 
+  // 프로필(public.users)에서 닉네임을 읽는다. 아직 안 불러왔으면 기본값으로 대체한다.
+  const { profile } = useAuth();
+  const nickname = profile?.nickname || '사용자';
+
   const now = useNow();
 
   // 메뉴 옆에 살짝 보여줄 요약값 계산
-  const { bookings } = useBookings();
+  const { bookings, coupons } = useBookings();
 
   const bookingCount = deriveAllBookings(bookings, now).length;
   const pageInfo = passportPageInfo(bookings, now);
-  const availableCouponCount = deriveCoupons(bookings, now).filter(
-    (c) => c.status === '사용가능'
-  ).length;
+  const availableCouponCount = coupons.filter((c) => c.status === '사용가능').length;
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top']}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* 프로필 */}
-        <View style={styles.profile}>
+        {/* 프로필 (누르면 프로필 편집으로) */}
+        <Pressable style={styles.profile} onPress={() => router.push('/mypage/profile')}>
           <View style={[styles.avatar, { backgroundColor: theme.emptyCellBackground }]}>
             <Ionicons name="person-outline" size={28} color={theme.textSecondary} />
           </View>
           <View style={styles.profileText}>
-            <Text style={[styles.nickname, { color: theme.text }]}>{NICKNAME}</Text>
+            <Text style={[styles.nickname, { color: theme.text }]}>{nickname}</Text>
             <Text style={[styles.profileSub, { color: theme.textSecondary }]}>
               관람 {pageInfo.totalStamps} · 쿠폰 {availableCouponCount}
             </Text>
           </View>
-        </View>
+          <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
+        </Pressable>
 
         {/* 메뉴 카드 */}
         <View style={[styles.card, { backgroundColor: theme.emptyCellBackground }]}>
@@ -122,6 +124,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   profileText: {
+    flex: 1, // 남는 가로 공간을 차지해 오른쪽 화살표를 끝으로 민다
     gap: 4,
   },
   nickname: {
