@@ -13,8 +13,9 @@ import { LoadError } from '@/components/load-error';
 import { CategoryColors, Colors, Theme } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
 import { useEvents } from '@/contexts/events';
-import { formatEventSchedule } from '@/data/events';
+import { formatEventSchedule, isBookable } from '@/data/events';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useNow } from '@/hooks/use-now';
 
 export default function BookingDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -22,12 +23,16 @@ export default function BookingDetailScreen() {
   const theme = colorScheme === 'dark' ? Theme.dark : Theme.light;
 
   const { events, isLoading, error, refresh } = useEvents();
+  const now = useNow();
   const event = events.find((item) => item.id === id);
+
+  // 남은 회차가 있고 자리도 남았는가 (전시는 기간이 안 지났는가). 매진이면 false가 된다.
+  const bookable = !!event && isBookable(event, now);
 
   // "예매하기"를 누르면 결제(checkout) 화면으로 넘어간다. 실제 예매 생성은 거기서 한다.
   // checkout은 고정 경로라, 어떤 공연인지는 쿼리 파라미터(id)로 넘긴다.
   function handleBook() {
-    if (!event) {
+    if (!event || !bookable) {
       return;
     }
     router.push({ pathname: '/booking/checkout', params: { id: event.id } });
@@ -102,10 +107,15 @@ export default function BookingDetailScreen() {
         </View>
       </ScrollView>
 
-      {/* 하단 고정 예매하기 버튼 */}
+      {/* 하단 고정 예매하기 버튼.
+          목록에서는 예매 가능한 것만 보여주지만, 화면을 열어둔 사이 마지막 회차가 지나거나
+          매진될 수 있고 딥링크로 바로 들어올 수도 있어서 여기서도 한 번 더 확인한다. */}
       <View style={[styles.bottomBar, { backgroundColor: theme.background }]}>
-        <Pressable style={styles.bookButton} onPress={handleBook}>
-          <Text style={styles.bookButtonText}>예매하기</Text>
+        <Pressable
+          style={[styles.bookButton, !bookable && styles.bookButtonDisabled]}
+          onPress={handleBook}
+          disabled={!bookable}>
+          <Text style={styles.bookButtonText}>{bookable ? '예매하기' : '예매 마감'}</Text>
         </Pressable>
       </View>
     </SafeAreaView>
@@ -221,6 +231,9 @@ const styles = StyleSheet.create({
     borderRadius: 8, // radius-button
     paddingVertical: 16,
     alignItems: 'center',
+  },
+  bookButtonDisabled: {
+    opacity: 0.4,
   },
   bookButtonText: {
     fontFamily: Fonts.medium,

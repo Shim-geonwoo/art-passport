@@ -12,9 +12,13 @@ import { supabase } from '@/lib/supabase';
 
 // 공연 회차 하나 (event_schedules 테이블의 한 행).
 // 전시(기간형)는 정해진 시각이 없어서 회차를 만들지 않는다 → schedules가 빈 배열이다.
+// 정원(capacity)도 회차에만 있으므로, 회차가 없는 전시는 자연히 무제한이 된다.
 export type EventSchedule = {
   id: string;
   startsAt: Date;
+  capacity: number; // 이 회차의 좌석 수
+  soldCount: number; // 지금까지 팔린 매수 (서버가 트리거로 유지한다)
+  remaining: number; // 남은 좌석 = capacity - soldCount (0 미만으로는 안 내려간다)
 };
 
 // docs/data-structure.md의 events 테이블 칸 그대로.
@@ -43,7 +47,7 @@ export type EventRow = {
   poster_url: string | null;
   description: string | null;
   // 예매 카탈로그를 불러올 때만 함께 딸려온다. 예매(bookings) 조회 때는 회차 목록이 필요 없어서 없다.
-  event_schedules?: { id: string; starts_at: string }[] | null;
+  event_schedules?: { id: string; starts_at: string; capacity: number; sold_count: number }[] | null;
 };
 
 export function mapEventRow(row: EventRow): EventItem {
@@ -59,7 +63,14 @@ export function mapEventRow(row: EventRow): EventItem {
     description: row.description,
     // 회차는 항상 이른 순으로 정렬해 둔다 (화면마다 다시 정렬하지 않아도 되게)
     schedules: (row.event_schedules ?? [])
-      .map((s) => ({ id: s.id, startsAt: new Date(s.starts_at) }))
+      .map((s) => ({
+        id: s.id,
+        startsAt: new Date(s.starts_at),
+        capacity: s.capacity,
+        soldCount: s.sold_count,
+        // 음수가 나올 일은 없지만, 화면에서 "-2석"이 보이는 일이 없도록 0에서 막는다
+        remaining: Math.max(0, s.capacity - s.sold_count),
+      }))
       .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime()),
   };
 }
@@ -70,7 +81,7 @@ export function mapEventRow(row: EventRow): EventItem {
 export async function fetchEvents(): Promise<EventItem[]> {
   const { data, error } = await supabase
     .from('events')
-    .select('*, event_schedules(id, starts_at)')
+    .select('*, event_schedules(id, starts_at, capacity, sold_count)')
     .order('show_at', { ascending: true });
   if (error) {
     throw error;
@@ -78,9 +89,15 @@ export async function fetchEvents(): Promise<EventItem[]> {
   return (data ?? []).map(mapEventRow);
 }
 
-// 아직 안 지난 회차만 (예매할 수 있는 회차). 전시는 회차가 없어서 항상 빈 배열이다.
+// 아직 안 지난 회차만. 전시는 회차가 없어서 항상 빈 배열이다.
+// 매진된 회차도 포함한다 — 결제 화면에서 "이런 회차가 있지만 매진"이라고 보여줘야 하기 때문.
 export function upcomingSchedules(event: EventItem, now: Date = new Date()): EventSchedule[] {
   return event.schedules.filter((s) => s.startsAt.getTime() > now.getTime());
+}
+
+// 실제로 지금 살 수 있는 회차 (안 지났고 자리도 남은 것)
+export function bookableSchedules(event: EventItem, now: Date = new Date()): EventSchedule[] {
+  return upcomingSchedules(event, now).filter((s) => s.remaining > 0);
 }
 
 // 공연 카드/상세에 보여줄 일정 문자열. 둘 다 "언제부터 언제까지"로 읽히게 맞춘다.
@@ -99,12 +116,12 @@ export function formatEventSchedule(event: EventItem): string {
 }
 
 // 지금 이 이벤트를 예매할 수 있는가.
-// - 전시(기간형): 종료일이 아직 안 지났으면(오늘 포함) 예매 가능.
-// - 공연(회차형): 아직 안 지난 회차가 하나라도 남아 있으면 예매 가능.
-//   (첫 회차가 지났어도 뒤 회차가 남았으면 계속 예매할 수 있다)
+// - 전시(기간형): 정원이 없으므로, 종료일이 아직 안 지났으면(오늘 포함) 예매 가능.
+// - 공연(회차형): 안 지났고 자리도 남은 회차가 하나라도 있으면 예매 가능.
+//   (첫 회차가 지났거나 매진이어도 뒤 회차가 남았으면 계속 예매할 수 있다)
 export function isBookable(event: EventItem, now: Date = new Date()): boolean {
   if (event.showEndAt) {
     return startOfToday(event.showEndAt).getTime() >= startOfToday(now).getTime();
   }
-  return upcomingSchedules(event, now).length > 0;
+  return bookableSchedules(event, now).length > 0;
 }

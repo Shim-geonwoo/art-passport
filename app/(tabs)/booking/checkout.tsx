@@ -76,8 +76,8 @@ export default function CheckoutScreen() {
 
   const event = events.find((item) => item.id === id);
 
-  // 인원(매수). − / + 버튼으로 1~4 사이에서 조절한다.
-  const [quantity, setQuantity] = useState(MIN_QUANTITY);
+  // 인원(매수). − / + 버튼으로 조절한다. 실제 상한은 남은 좌석에 따라 달라져서 아래에서 다시 계산한다.
+  const [quantityInput, setQuantityInput] = useState(MIN_QUANTITY);
 
   // 언제 관람할지. 공연이면 회차를, 전시면 날짜를 고른다(둘 중 하나만 쓰인다).
   // 처음엔 아무것도 안 골라둔다 — 실수로 엉뚱한 회차를 예매하는 걸 막으려고, 직접 고르게 한다.
@@ -126,8 +126,11 @@ export default function CheckoutScreen() {
   const schedules = upcomingSchedules(event, now);
   const selectedSchedule = schedules.find((s) => s.id === selectedScheduleId) ?? null;
 
-  // 공연에서 회차가 있는 날짜들 — 달력에서 이 날들만 고를 수 있게 넘긴다.
-  const scheduleDateKeys = new Set(schedules.map((s) => toDateKey(s.startsAt)));
+  // 공연에서 "고를 수 있는 날짜" = 그날 자리가 남은 회차가 하나라도 있는 날.
+  // 그날 회차가 전부 매진이면 달력에서 아예 못 고르게 한다(들어가 봐야 고를 게 없으므로).
+  const scheduleDateKeys = new Set(
+    schedules.filter((s) => s.remaining > 0).map((s) => toDateKey(s.startsAt))
+  );
 
   // 고를 수 있는 날짜 범위
   //  - 전시: 오늘(또는 전시 시작일) ~ 전시 종료일
@@ -166,6 +169,16 @@ export default function CheckoutScreen() {
   // 관람일(공연이면 회차까지)을 골랐는가. 안 골랐으면 결제 버튼을 막는다.
   const whenChosen = isExhibition ? !!selectedDate : !!selectedSchedule;
 
+  // 고를 수 있는 인원 상한. 전시는 정원이 없어서 그대로 4매, 공연은 그 회차에 남은 좌석까지만.
+  // (남은 자리보다 많이 고를 수 있게 두면, 결제 버튼을 눌러야 서버가 거절해서 헛걸음이 된다)
+  const maxQuantity = selectedSchedule
+    ? Math.max(MIN_QUANTITY, Math.min(MAX_QUANTITY, selectedSchedule.remaining))
+    : MAX_QUANTITY;
+
+  // 실제로 쓸 인원 수. 회차를 바꿔서 상한이 줄어들면 고른 값도 따라 줄어든다
+  // (state를 그때그때 고쳐 맞추는 대신, 그릴 때 상한으로 눌러서 어긋날 여지를 없앤다)
+  const quantity = Math.min(quantityInput, maxQuantity);
+
   // 날짜를 새로 고르면, 그 전에 골라둔 회차는 다른 날 것이라 더 이상 쓸 수 없다 → 같이 비운다.
   // (같은 날을 다시 누른 경우엔 고른 회차를 그대로 둔다)
   function handleSelectDate(date: Date) {
@@ -186,7 +199,7 @@ export default function CheckoutScreen() {
   const totalPrice = originalPrice - discountAmount;
 
   function changeQuantity(delta: number) {
-    setQuantity((prev) => Math.min(MAX_QUANTITY, Math.max(MIN_QUANTITY, prev + delta)));
+    setQuantityInput(Math.min(maxQuantity, Math.max(MIN_QUANTITY, quantity + delta)));
   }
 
   // "테스트 결제하기": 서버(create_booking)에 예매 1건을 만들어 달라고 하고, 완료를 알린 뒤 예매 목록으로 돌아간다.
@@ -290,6 +303,7 @@ export default function CheckoutScreen() {
                   <TimeChip
                     key={schedule.id}
                     label={formatTime(schedule.startsAt)}
+                    remaining={schedule.remaining}
                     selected={schedule.id === selectedScheduleId}
                     onPress={() => setSelectedScheduleId(schedule.id)}
                     theme={theme}
@@ -315,7 +329,15 @@ export default function CheckoutScreen() {
 
         {/* 인원(매수) 선택 */}
         <View style={styles.quantityBlock}>
-          <Text style={[styles.sectionLabel, { color: theme.text }]}>인원</Text>
+          <View>
+            <Text style={[styles.sectionLabel, { color: theme.text }]}>인원</Text>
+            {/* 남은 좌석 때문에 상한이 줄었으면 왜 더 못 늘리는지 알려준다 */}
+            {maxQuantity < MAX_QUANTITY ? (
+              <Text style={[styles.sectionHint, { color: theme.textSecondary }]}>
+                이 회차는 {maxQuantity}매까지 가능해요
+              </Text>
+            ) : null}
+          </View>
           <View style={styles.stepper}>
             <StepperButton
               label="−"
@@ -326,7 +348,7 @@ export default function CheckoutScreen() {
             <Text style={[styles.quantityValue, { color: theme.text }]}>{quantity}</Text>
             <StepperButton
               label="+"
-              disabled={quantity >= MAX_QUANTITY}
+              disabled={quantity >= maxQuantity}
               onPress={() => changeQuantity(1)}
               theme={theme}
             />
@@ -428,23 +450,44 @@ function payErrorMessage(error: unknown): string {
 
 // 회차 시간 알약 (공연). 고른 날짜에 열리는 시간들을 옆으로 늘어놓고 하나를 고른다.
 // 고른 것은 달력에서 고른 날과 똑같이 골드로 채워서, 같은 "선택" 표시로 읽히게 맞춘다.
+//
+// 매진된 회차도 지우지 않고 흐리게 남겨둔다 — "이 시간대는 원래 없다"와 "있는데 다 나갔다"는
+// 사용자에게 다른 정보라서, 아예 감추면 왜 못 고르는지 알 수 없다.
 function TimeChip({
   label,
+  remaining,
   selected,
   onPress,
   theme,
 }: {
   label: string;
+  remaining: number;
   selected: boolean;
   onPress: () => void;
   theme: ThemeColors;
 }) {
+  const soldOut = remaining <= 0;
+
   return (
     <Pressable
       onPress={onPress}
-      style={[styles.timeChip, { borderColor: theme.dashedBorder }, selected && styles.timeChipOn]}>
+      disabled={soldOut}
+      style={[
+        styles.timeChip,
+        { borderColor: theme.dashedBorder },
+        selected && styles.timeChipOn,
+        soldOut && styles.timeChipSoldOut,
+      ]}>
       <Text style={[styles.timeChipText, { color: theme.text }, selected && styles.timeChipTextOn]}>
         {label}
+      </Text>
+      <Text
+        style={[
+          styles.timeChipMeta,
+          { color: theme.textSecondary },
+          selected && styles.timeChipTextOn,
+        ]}>
+        {soldOut ? '매진' : `${remaining.toLocaleString('ko-KR')}석`}
       </Text>
     </Pressable>
   );
@@ -589,15 +632,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 8, // radius-button
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 8,
+    alignItems: 'center',
+    gap: 2,
   },
   timeChipOn: {
     backgroundColor: Colors.gold,
     borderColor: Colors.gold,
   },
+  timeChipSoldOut: {
+    opacity: 0.4,
+  },
   timeChipText: {
     fontFamily: Fonts.medium,
     fontSize: 14,
+  },
+  timeChipMeta: {
+    fontFamily: Fonts.regular,
+    fontSize: 11,
   },
   timeChipTextOn: {
     color: Colors.textOnColor,
