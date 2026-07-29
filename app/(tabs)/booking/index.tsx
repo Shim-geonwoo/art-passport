@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GenreBadge } from '@/components/genre-badge';
 import { LoadError } from '@/components/load-error';
+import { RefreshErrorBanner } from '@/components/refresh-error-banner';
 import { CategoryColors, Colors, Genre, Theme } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
 import { useEvents } from '@/contexts/events';
@@ -55,6 +56,12 @@ export default function BookingListScreen() {
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top']}>
+      {/* 카탈로그 갱신에 실패했지만 예전 목록은 있는 경우. 목록을 그대로 두고 위에 한 줄만 얹는다.
+          (아예 못 불러온 경우는 아래에서 LoadError로 화면 전체를 쓴다) */}
+      {error && events.length > 0 ? (
+        <RefreshErrorBanner message={error} onRetry={refresh} theme={theme} />
+      ) : null}
+
       {/* 검색창. 카탈로그가 50건이라 카테고리만으로는 찾기 어려워서 상시 노출한다
           (보딩패스 탭은 티켓이 몇 장뿐이라 아이콘을 눌러야 열리는 방식이지만, 여긴 목록이 크다) */}
       <View style={[styles.searchBar, { borderColor: theme.dashedBorder }]}>

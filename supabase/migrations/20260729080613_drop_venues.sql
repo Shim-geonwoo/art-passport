@@ -1,0 +1,21 @@
+-- 안 쓰는 venues 테이블 정리
+--
+-- 첫 마이그레이션에서 "나중에 events.venue_id로 옮겨 붙일 수 있다"는 생각으로 만들어뒀지만,
+-- 그 뒤로 한 번도 채우지 않았고 앱 코드에서 참조한 적도 없다(공연장은 events.venue_name 글자로
+-- 충분했다). 비어 있는 표가 스키마에 남아 있으면 나중에 읽는 사람이 "이걸 써야 하나" 하고
+-- 헷갈리므로 지운다.
+--
+-- 되살리는 법: 아래 주석의 create table을 그대로 새 마이그레이션에 넣으면 된다.
+-- 다만 그때는 "공연장을 왜 따로 관리해야 하는가"(지점별 주소·좌석 배치 등 실제 요구)가
+-- 먼저 있어야 하고, 그 요구에 맞춰 칸을 다시 설계하는 편이 낫다.
+--
+--   create table venues (
+--     id uuid primary key default gen_random_uuid(),
+--     name text not null,
+--     address text
+--   );
+--
+-- events.venue_name은 그대로 둔다. 목록·상세·보딩패스가 전부 이 값을 쓰고 있고,
+-- 지금 구조로 아쉬운 점이 없다.
+
+drop table if exists venues;

@@ -10,6 +10,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackHeader } from '@/components/back-header';
+import { RefreshErrorBanner } from '@/components/refresh-error-banner';
 import { Colors, Theme, ThemeColors } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
 import { useBookings } from '@/contexts/bookings';
@@ -33,7 +34,7 @@ export default function BookingsScreen() {
   const colorScheme = useColorScheme();
   const theme: ThemeColors = colorScheme === 'dark' ? Theme.dark : Theme.light;
 
-  const { bookings } = useBookings();
+  const { bookings, error, refresh } = useBookings();
   const now = useNow();
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('예매완료');
@@ -58,6 +59,10 @@ export default function BookingsScreen() {
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top']}>
       <BackHeader title="예매관리" color={theme.text} />
+
+      {/* 갱신에 실패했으면 알린다. 목록은 예전에 받아둔 것을 그대로 보여주므로 화면을 뺏지 않는다 —
+          조용히 넘어가면 "방금 예매했는데 목록에 없다"를 사용자가 오해하게 된다. */}
+      {error ? <RefreshErrorBanner message={error} onRetry={refresh} theme={theme} /> : null}
 
       {/* 상태 필터 칩. 3개뿐이라 가로 스크롤 없이 한 줄에 다 보여준다 (가로 스크롤 + 숨긴 스크롤바 조합은
           마지막 칩이 화면 밖으로 잘려 보이는 문제가 있었다). 각 칩에 건수도 함께 보여준다 */}
