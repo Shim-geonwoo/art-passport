@@ -7,11 +7,12 @@
 // 시안과 docs/design-system.md "8-1. 보딩패스 카드" 실측값을 그대로 따른다.
 //
 // 화면 동작 규칙:
-// - "관람 3일 전 ~ 관람 시각" 사이인 예매만 보딩패스로 보여준다. (그 전/후는 안 보임)
+// - 예매를 마치면 바로 보딩패스로 올라오고, 관람 시각이 지나면 사라진다(그때 여권 스탬프가 된다).
 // - 마이페이지에서 취소한 예매는 보딩패스에서도 즉시 사라진다.
 // - 여러 장이면 애플 월렛처럼 겹쳐 쌓고, 스크롤로 뒤에 깔린 카드를 볼 수 있다.
 // - 보여줄 티켓이 하나도 없으면, 안내 문구 없이 완전히 빈 화면으로 둔다.
-// - 아직 실제 예매 데이터가 없어서, 더미 데이터로만 화면을 채운다.
+// - 임박(오늘 포함 3일 이내)한 티켓에만 D-day 배지를 붙인다.
+// - 카드에 찍히는 이름(PASSENGER)은 로그인한 회원의 닉네임이다.
 
 import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -21,6 +22,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CategoryColors, CategoryIcons, CategoryLabels, Colors, Genre, Theme } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
+import { useAuth } from '@/contexts/auth';
 import { useBookings } from '@/contexts/bookings';
 import { DerivedBooking, deriveBoardingPasses } from '@/data/bookings';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -78,10 +80,12 @@ const ARRIVAL_VALUE = 'SEOUL';
 // 화면 맨 위 타이틀 (피그마 "art - boarding pass" 프레임 상단 헤더)
 const SCREEN_TITLE = 'ART PASS';
 
-// 아직 로그인이 없어서 예매자 이름은 더미로 고정한다.
 // 좌석은 자유석 고정, 인원(CAP)은 결제 화면에서 정한 booking.quantity를 쓴다.
-const PASSENGER_NAME = 'SHIM GEONWOO';
+// (예매자 이름은 로그인한 회원의 닉네임을 쓴다 — 아래 BoardingPassScreen 참고)
 const SEAT_INFO = '자유석';
+
+// 프로필을 아직 못 불러왔을 때 쓸 이름. 회원가입 트리거가 넣는 기본 닉네임과 같은 값이다.
+const FALLBACK_PASSENGER_NAME = '사용자';
 
 // 예매 한 건 = 보딩패스 카드 한 장
 type Booking = {
@@ -95,7 +99,18 @@ type Booking = {
   timeText: string; // 관람 시간 (HH:MM)
   seatInfo: string; // 좌석 정보
   capacity: number; // 인원 수
+  dDayText: string | null; // 임박한 티켓에만 붙는 배지 문구 ('D-DAY' / 'D-1'). 임박 아니면 null
 };
+
+// 임박한 티켓에 붙일 배지 문구를 만든다. 임박이 아니면 배지를 달지 않는다(null).
+// 월렛엔 예매완료 티켓이 전부 쌓이기 때문에, 여러 장이 쌓여도 "지금 챙길 것"이 묻히지 않게
+// 임박한 카드에만 이 배지를 붙인다. (임박 판정 자체는 data/bookings.ts의 isSoon이 한다)
+function dDayLabel(booking: DerivedBooking): string | null {
+  if (!booking.isSoon) {
+    return null;
+  }
+  return booking.daysUntilShow === 0 ? 'D-DAY' : `D-${booking.daysUntilShow}`;
+}
 
 // 숫자를 항상 두 자리로 만든다 (예: 3 -> "03")
 function pad2(value: number): string {
@@ -112,20 +127,21 @@ function formatTime(date: Date): string {
 
 // 중앙 데이터(data/bookings.ts)에서 파생된 예매 한 건을,
 // 이 화면의 카드가 그릴 수 있는 표현용 형태로 옮긴다.
-// "지금 보딩패스로 보여줄지"의 판단(3일 이내)과 정렬은 deriveBoardingPasses가 이미 해준다.
-function toCardBooking(booking: DerivedBooking): Booking {
+// "지금 보딩패스로 보여줄지"의 판단(=아직 관람 전인가)과 정렬은 deriveBoardingPasses가 이미 해준다.
+function toCardBooking(booking: DerivedBooking, passengerName: string): Booking {
   return {
     id: booking.id,
     genre: booking.event.genre,
     eventTitle: booking.event.title,
     venueName: booking.event.venueName,
-    passengerName: PASSENGER_NAME,
+    passengerName,
     showAt: booking.showAt,
     dateText: formatDate(booking.showAt),
     // 전시(기간형, showEndAt 있음)는 시각이 없는 관람이라 시간 칸을 비워 둔다
     timeText: booking.event.showEndAt ? '' : formatTime(booking.showAt),
     seatInfo: SEAT_INFO,
     capacity: booking.quantity, // 결제 화면에서 고른 인원 (deriveBooking이 1 이상으로 정규화해 둠)
+    dDayText: dDayLabel(booking),
   };
 }
 
@@ -144,10 +160,17 @@ export default function BoardingPassScreen() {
 
   // 앱 전체가 공유하는 예매 목록 (앱 최상단 BookingsProvider)
   const { bookings } = useBookings();
+  const { profile } = useAuth();
 
-  // 보딩패스로 보여줄 예매만(관람 3일 이내) 관람일 가까운 순으로 이미 걸러져 온다.
+  // 보딩패스 PASSENGER 칸에 찍을 이름 = 로그인한 회원의 닉네임(public.users).
+  // 프로필을 아직 못 불러온 아주 짧은 순간엔 기본값으로 대체한다.
+  const passengerName = profile?.nickname || FALLBACK_PASSENGER_NAME;
+
+  // 보딩패스로 보여줄 예매만(아직 관람 전) 관람일 가까운 순으로 이미 걸러져 온다.
   // 취소한 예매는 status가 '취소'라 deriveBoardingPasses가 알아서 빼준다.
-  const visibleBookings = deriveBoardingPasses(bookings, now).map(toCardBooking);
+  const visibleBookings = deriveBoardingPasses(bookings, now).map((booking) =>
+    toCardBooking(booking, passengerName)
+  );
 
   // 사용자가 카드를 탭해서 만든 앞-뒤 순서. index 0 = 맨 앞 카드.
   // 처음엔 관람일이 가까운 순서를 그대로 쓴다.
@@ -411,9 +434,21 @@ function BoardingPassCard({ booking }: { booking: Booking }) {
       {/* 상단 (270 x 42) */}
       <View style={styles.topSection}>
         {/* 'CLASSIC & DANCE'처럼 긴 라벨이 2줄로 넘어가지 않게 한 줄 고정 + 필요하면 글자 크기 축소 */}
-        <Text style={styles.categoryName} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+        <Text
+          style={[styles.categoryName, booking.dDayText ? styles.categoryNameWithBadge : null]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.6}>
           {categoryLabel}
         </Text>
+        {/* D-day 배지: 임박한 티켓에만. 카테고리 아이콘 왼쪽 빈자리에 놓는다.
+            흰 알약 + 카드와 같은 카테고리 색 글씨 — 5가지 카테고리 색 위에서 전부 또렷하게 읽히고,
+            새 색을 들이지 않으면서 카드와 한 몸처럼 보인다. */}
+        {booking.dDayText ? (
+          <View style={styles.dDayBadge}>
+            <Text style={[styles.dDayText, { color: categoryColor }]}>{booking.dDayText}</Text>
+          </View>
+        ) : null}
         {/* 카테고리 아이콘: 37x37 칸 가운데에 놓는다 (피그마 실측 칸 크기) */}
         <View style={styles.topIconSlot}>
           <MaterialCommunityIcons name={categoryIconName} size={24} color={CARD_ICON_COLOR} />
@@ -580,6 +615,10 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: CARD_VALUE_COLOR,
   },
+  // D-day 배지가 붙는 날엔 라벨이 배지 밑으로 들어가지 않게 폭을 줄인다 (배지는 left 163부터 시작)
+  categoryNameWithBadge: {
+    width: 148,
+  },
   topIconSlot: {
     position: 'absolute',
     left: 229,
@@ -588,6 +627,24 @@ const styles = StyleSheet.create({
     height: 37,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // D-day 배지 (임박한 티켓에만). 카테고리 아이콘(left 229) 바로 왼쪽에 오른쪽 정렬로 붙는다.
+  dDayBadge: {
+    position: 'absolute',
+    right: 45, // 270 - 45 = 225 에서 끝난다 (아이콘 앞 4px 여백)
+    top: 11,
+    height: 20,
+    paddingHorizontal: 8,
+    borderRadius: 10, // 알약 모양 (height의 절반)
+    backgroundColor: Colors.textOnColor, // 흰 알약
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dDayText: {
+    fontFamily: Fonts.bold,
+    fontSize: 11,
+    letterSpacing: 0.3,
+    // 글씨 색은 카드의 카테고리 색을 그대로 쓴다 (컴포넌트에서 넘겨준다)
   },
 
   // 중간 (270 x 170, 피그마 실측: 42 + 170 + 168 = 380)

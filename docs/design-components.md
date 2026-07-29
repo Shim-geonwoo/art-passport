@@ -29,20 +29,26 @@
 
 카드 한 장 = 애플 월렛 보딩패스 한 장. 다른 모든 컴포넌트가 참고하는 기준.
 
-- **목적**: 관람 임박한 예매 1건을 항공권처럼 보여준다. "자택(HOME) → 관람 도시(SEOUL)"
+- **목적**: 아직 관람 전인 예매 1건을 항공권처럼 보여준다. "자택(HOME) → 관람 도시(SEOUL)"
   가상의 비행 컨셉.
 - **코드**: `components/boarding-pass-card.tsx`(정적 목업),
   `app/(tabs)/index.tsx`의 `BoardingPassCard`(실 데이터 바인딩 버전)
 - **크기**: 270 x 380, radius `radius-pass-card`(10), `overflow: hidden`
 - **배경색**: 카테고리 색 (`CategoryColors[genre]`)
 - **레이아웃**: 세로 3영역, 전부 `position: absolute` 좌표 (design-system.md 8번 표 그대로)
-  - 상단 270x42 — 카테고리명(CardHeader) + 카테고리 아이콘
+  - 상단 270x42 — 카테고리명(CardHeader) + D-day 배지(임박할 때만) + 카테고리 아이콘
   - 중간 270x170 — HOME/SEOUL + 비행기 아이콘 + PASSENGER/DATE/TIME/SEAT/CAP
   - 하단 270x168 — CONTENT 라벨/값 + QR 자리(100x100 회색 박스, 실제 QR 붙기 전 임시)
 - **타이포**: `design-system.md` 3-1 표(CardHeader/CardBigValue/CardLabel/CardValue) 그대로
 - **색**: `on-color-value`(흰) / `on-color-label`(#2C2C2C) / `on-color-icon`(검정)
-- **상태**: 지금은 정적 상태 하나뿐(관람 임박). "관람완료"가 되면 이 카드가 아니라
-  `Stamp` 컴포넌트로 완전히 바뀐다(카드 자체에 상태 변형은 없음).
+- **상태**: 카드 자체의 변형은 D-day 배지 유무 하나뿐이다.
+  예매완료면 월렛에 올라가고(배지 없음), 관람이 임박(오늘 포함 3일 이내)하면 배지가 붙는다.
+  "관람완료"가 되면 이 카드가 아니라 `Stamp` 컴포넌트로 완전히 바뀐다.
+- **D-day 배지**: 흰 알약(height 20, radius 10) + 카드와 같은 카테고리 색 글씨(Bold 11).
+  카테고리 아이콘 왼쪽에 오른쪽 정렬(`right: 45`). 문구는 `D-DAY`(당일) / `D-1` ~ `D-3`.
+  > 흰 배경 + 카테고리 색 글씨로 정한 이유: 카테고리 색 5종 위에서 전부 또렷하게 읽히면서,
+  > 디자인 시스템에 없는 새 색을 들이지 않고 카드와 한 몸으로 보인다.
+  > 판정은 `data/bookings.ts`의 `isSoon`(월렛 노출 여부인 `isBoardingPass`와 별개 값).
 - **데이터 바인딩 시 주의**
   - `venueName`이 길면 `adjustsFontSizeToFit` + `numberOfLines={1}`로 줄인다(코드에 이미 반영).
   - `eventTitle`(CONTENT 값)이 2줄이 되면 라벨/값을 원래 좌표보다 12px 위로 올려서
@@ -56,9 +62,9 @@
 
 BoardingPassCard 여러 장을 애플 월렛처럼 겹쳐 쌓는 컨테이너.
 
-- **목적**: 관람 임박(3일 이내) 예매가 여러 건이면 겹쳐서 보여주고, 탭하면 맨 앞으로.
+- **목적**: 아직 관람 전인 예매가 여러 건이면 겹쳐서 보여주고, 탭하면 맨 앞으로.
 - **코드**: `app/(tabs)/index.tsx`
-- **표시 조건**: `showAt`이 "지금 ~ 지금+3일" 사이인 예매만 (지나거나 너무 먼 건 제외)
+- **표시 조건**: 상태가 '예매완료'인 예매 전부 (예매하면 바로 올라오고, 관람 시각이 지나면 빠진다)
 - **정렬 기준**: 관람 시각이 가까운 순서로 처음 쌓임
 - **자리별 스펙**(design-system.md 8-1 표)
 

@@ -101,8 +101,10 @@ export default function BookingDetailScreen() {
           </View>
         </View>
 
-        {/* 관람이 임박(보딩패스 대상)하면 안내 */}
-        {booking.isBoardingPass && (
+        {/* 관람이 임박(오늘 포함 3일 이내)했을 때만 안내.
+            "월렛에 있나"(isBoardingPass)가 아니라 "임박한가"(isSoon)를 봐야 한다 —
+            예매완료면 전부 월렛에 올라가므로, 그걸 조건으로 쓰면 석 달 뒤 공연에도 이 문구가 뜬다. */}
+        {booking.isSoon && (
           <Pressable
             style={styles.notice}
             onPress={() => router.push('/')}>
