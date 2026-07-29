@@ -1,8 +1,12 @@
 // 쿠폰 — 실제 Supabase coupons 테이블 기반
 //
-// 쿠폰 발급(스탬프 9개를 채울 때마다 1장)은 아직 자동화 로직이 없다(docs/data-structure.md
-// "쿠폰 발급" 참고 — 서버 트리거/예약 함수가 필요한 별도 작업). 그래서 지금은 실제 계정에
-// 쿠폰이 0장인 게 정상이다.
+// 발급(스탬프 9개를 채울 때마다 1장)은 서버 함수 issue_due_coupons()가 한다. 크론 없이,
+// 앱이 예매 목록을 새로 받을 때(BookingsProvider.refresh)마다 "받을 게 있으면 받는" 방식이다.
+// 사용(예매에 적용) 처리는 여기 없다 — 예매를 만들 때 createBooking(data/bookings.ts) 안에서
+// 예매와 한 트랜잭션으로 함께 처리된다.
+//
+// 아직 없는 것: '만료' 상태. status 값으로는 정의돼 있고 리워드함에 필터도 있지만,
+// 유효기간 칸(expires_at)도 만료시키는 로직도 없어서 실제로 만료되는 쿠폰은 없다.
 
 import { supabase } from '@/lib/supabase';
 

@@ -5,7 +5,8 @@
 // - 여권 한 페이지 = 스탬프 9칸(3x3). 항상 9칸을 그리고, 채운 칸만 스탬프·나머지는 점선 빈 칸.
 // - 관람완료한 예매 하나 = 스탬프 하나 (data/bookings.ts의 deriveStamps에서 파생).
 // - 9칸을 다 채우면 쿠폰 1장이 발급되고, "WE GOT A COUPON!" + "리워드함으로 가기" 버튼이 활성화된다.
-// - "리워드함으로 가기"를 누르면 여권의 다음 페이지로 넘어간다 (스탬프는 계속 다음 장으로 이어짐).
+// - 그 배너는 해당 쿠폰을 실제로 쓰면 내려간다 (쿠폰 상태에서 파생 — 화면이 따로 기억하지 않는다).
+// - 페이지는 아래 이전/다음 화살표로 넘긴다 (스탬프는 계속 다음 장으로 이어짐).
 
 import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -52,12 +53,9 @@ export default function PassportScreen() {
   // 지금 보고 있는 여권 페이지 (1부터). 이전/다음 버튼이나 "리워드함으로 가기"로 바뀐다.
   const [currentPage, setCurrentPage] = useState(1);
 
-  // "리워드함으로 가기"를 눌러 이미 쿠폰을 챙긴 페이지들. 이 페이지에선 쿠폰 배너를 다시 안 띄운다.
-  const [claimedPages, setClaimedPages] = useState<number[]>([]);
-
   // 중앙 데이터에서 관람완료 예매를 스탬프로 파생받고, 현재 페이지 것만 고른다.
   // (deriveStamps가 각 스탬프에 page/slotIndex를 이미 계산해 준다)
-  const { bookings } = useBookings();
+  const { bookings, coupons } = useBookings();
   const allStamps = deriveStamps(bookings, now);
   // 전체 여권 페이지 수 (스탬프 9개당 1페이지, 최소 1페이지)
   const totalPages = Math.max(1, Math.ceil(allStamps.length / STAMPS_PER_PAGE));
@@ -65,8 +63,19 @@ export default function PassportScreen() {
 
   // 이번 페이지 9칸을 다 채웠는지
   const isPageComplete = pageStamps.length >= TOTAL_STAMP_SLOTS;
-  // 쿠폰/리워드 영역을 보여줄지: 이 페이지가 꽉 찼고, 아직 이 페이지의 쿠폰을 안 챙겼을 때만
-  const showReward = isPageComplete && !claimedPages.includes(currentPage);
+
+  // 이 페이지를 완성해서 발급된 쿠폰. 서버가 쿠폰을 만들 때 몇 번째 스탬프에서 나온 건지를
+  // issued_at_stamp_order(9, 18, ...)에 적어두므로, 페이지 번호 x 9로 찾을 수 있다.
+  const pageCoupon =
+    coupons.find((coupon) => coupon.issuedAtStampOrder === currentPage * STAMPS_PER_PAGE) ?? null;
+
+  // 쿠폰/리워드 영역을 보여줄지: 이 페이지가 꽉 찼고, 그 쿠폰을 아직 안 썼을 때.
+  // 다 쓴(또는 만료된) 쿠폰이면 "리워드함으로 가기"를 권할 이유가 없으니 배너를 내린다.
+  //
+  // 예전엔 화면 안의 claimedPages(useState)로 "이미 챙긴 페이지"를 기억했는데, 그건 앱을 껐다
+  // 켜면 사라져서 이미 받은 쿠폰인데도 배너가 다시 떴다. 이 프로젝트의 원칙대로 —
+  // 저장하지 않고 파생한다 — 실제 쿠폰 상태에서 계산하니 앱을 다시 켜도, 기기를 바꿔도 맞는다.
+  const showReward = isPageComplete && (!pageCoupon || pageCoupon.status === '사용가능');
 
   // 그리드의 실제 가로 폭을 측정해서 칸 하나의 정확한 px 크기를 계산한다
   // (점선 테두리를 SVG로 정확히 그리려면 %가 아니라 실제 px 값이 필요하다)
@@ -78,12 +87,10 @@ export default function PassportScreen() {
     setGridWidth(event.nativeEvent.layout.width);
   }
 
-  // "리워드함으로 가기": (1) 이 페이지 쿠폰을 챙긴 것으로 표시(-> 배너 다시 안 뜸)
-  //                    (2) 다음 여권 페이지로 넘김
-  //                    (3) 마이페이지의 리워드함으로 이동
+  // "리워드함으로 가기": 마이페이지로 이동한다.
+  // 예전엔 여기서 여권을 다음 페이지로 넘기기도 했는데, 그건 배너를 감추려는 장치였다.
+  // 이제 배너는 쿠폰을 실제로 쓰면 알아서 내려가므로, 보고 있던 페이지를 말없이 바꾸지 않는다.
   function handleClaimReward() {
-    setClaimedPages((prev) => (prev.includes(currentPage) ? prev : [...prev, currentPage]));
-    setCurrentPage((page) => Math.min(page + 1, totalPages));
     router.push('/mypage');
   }
 
@@ -136,7 +143,7 @@ export default function PassportScreen() {
         </View>
 
         {/* 쿠폰 문구 + "리워드함으로 가기" 버튼.
-            페이지가 꽉 안 찼거나 이미 챙긴 경우엔 "숨기되 자리는 그대로 유지"한다(opacity 0 + 클릭 불가).
+            페이지가 꽉 안 찼거나 그 쿠폰을 이미 쓴 경우엔 "숨기되 자리는 그대로 유지"한다(opacity 0 + 클릭 불가).
             그래야 아래 페이지 번호가 리워드 유무와 상관없이 항상 같은 위치에 고정된다. */}
         <View
           style={[styles.rewardArea, !showReward && styles.rewardAreaHidden]}
