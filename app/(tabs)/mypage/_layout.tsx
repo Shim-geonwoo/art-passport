@@ -9,6 +9,13 @@
 
 import { Stack } from 'expo-router';
 
+// 이 스택의 기준(맨 아래) 화면은 항상 허브(index)다.
+// 여권의 "리워드함으로 가기"처럼 다른 탭에서 하위 화면으로 바로 건너뛰어 들어와도,
+// 그 아래에 허브가 깔려 있어서 뒤로가기가 마이페이지 안에서 자연스럽게 이어진다.
+export const unstable_settings = {
+  anchor: 'index',
+};
+
 export default function MyPageStackLayout() {
   return (
     <Stack screenOptions={{ headerShown: false }}>

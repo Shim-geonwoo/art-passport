@@ -87,11 +87,14 @@ export default function PassportScreen() {
     setGridWidth(event.nativeEvent.layout.width);
   }
 
-  // "리워드함으로 가기": 마이페이지로 이동한다.
+  // "리워드함으로 가기": 마이페이지의 리워드함으로 바로 간다.
   // 예전엔 여기서 여권을 다음 페이지로 넘기기도 했는데, 그건 배너를 감추려는 장치였다.
   // 이제 배너는 쿠폰을 실제로 쓰면 알아서 내려가므로, 보고 있던 페이지를 말없이 바꾸지 않는다.
+  //
+  // push가 아니라 navigate를 쓴다: 탭을 건너뛰는 이동에 push를 쓰면 히스토리에 항목이 쌓여서
+  // 나중에 뒤로가기를 눌렀을 때 엉뚱한 탭으로 돌아간다(navigate는 이미 있는 화면으로 옮겨간다).
   function handleClaimReward() {
-    router.push('/mypage');
+    router.navigate('/mypage/rewards');
   }
 
   // 여권 페이지 넘기기 (이전/다음). 1페이지 ~ totalPages 사이로만 이동한다.

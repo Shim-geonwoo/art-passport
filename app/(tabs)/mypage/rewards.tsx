@@ -62,7 +62,8 @@ export default function RewardsScreen() {
           <Text style={[styles.caption, { color: theme.textSecondary }]}>
             총 {pageInfo.totalStamps}개 관람 · 다음 쿠폰까지 {pageInfo.slotsUntilNextCoupon}칸
           </Text>
-          <Pressable style={styles.passportButton} onPress={() => router.push('/passport')}>
+          {/* 여권 탭으로 건너뛴다 (탭 이동은 push가 아니라 navigate — 위 두 곳과 같은 이유) */}
+          <Pressable style={styles.passportButton} onPress={() => router.navigate('/passport')}>
             <Ionicons name="book-outline" size={16} color={Colors.textOnColor} />
             <Text style={styles.passportButtonText}>여권에서 스탬프 보기</Text>
           </Pressable>

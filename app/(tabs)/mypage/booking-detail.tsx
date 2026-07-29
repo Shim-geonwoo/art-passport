@@ -103,11 +103,14 @@ export default function BookingDetailScreen() {
 
         {/* 관람이 임박(오늘 포함 3일 이내)했을 때만 안내.
             "월렛에 있나"(isBoardingPass)가 아니라 "임박한가"(isSoon)를 봐야 한다 —
-            예매완료면 전부 월렛에 올라가므로, 그걸 조건으로 쓰면 석 달 뒤 공연에도 이 문구가 뜬다. */}
+            예매완료면 전부 월렛에 올라가므로, 그걸 조건으로 쓰면 석 달 뒤 공연에도 이 문구가 뜬다.
+
+            누르면 보딩패스 탭으로 건너뛴다. push를 쓰면 히스토리에 쌓여서, 이 화면으로 되돌아온 뒤
+            뒤로가기를 눌렀을 때 예매 내역이 아니라 보딩패스로 가버린다 → navigate를 쓴다. */}
         {booking.isSoon && (
           <Pressable
             style={styles.notice}
-            onPress={() => router.push('/')}>
+            onPress={() => router.navigate('/')}>
             <Ionicons name="airplane" size={16} color={Colors.navy} />
             <Text style={styles.noticeText}>관람이 임박했어요 · 보딩패스에서 확인하기</Text>
           </Pressable>
