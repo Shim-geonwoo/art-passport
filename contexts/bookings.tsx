@@ -43,8 +43,13 @@ export function BookingsProvider({ children }: { children: ReactNode }) {
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // 한 번이라도 목록을 받아온 적이 있는가. "첫 조회부터 실패한 것"과 "쓰다가 한 번 실패한 것"을
-  // 구분하려고 둔다 — 앞의 경우엔 보여줄 게 아예 없어서 전체 화면으로 안내해야 한다.
+  // 로그인한 뒤 목록을 한 번이라도 성공적으로 받아온 적이 있는가.
+  // "첫 조회부터 실패한 것"과 "쓰다가 한 번 실패한 것"을 구분하려고 둔다 —
+  // 앞의 경우엔 보여줄 게 아예 없어서 전체 화면으로 안내해야 한다.
+  //
+  // 로그아웃 분기에서는 이 값을 켜지 않는다. 예전엔 켰었는데, 그러면 로그인 직후 첫 조회가
+  // 실패해도 "이미 한 번 불러온 적 있음"으로 취급돼서 안내 화면이 안 뜨고 목록만 텅 비었다.
+  // (실제로 그 탓에 쿠폰 조회가 깨졌을 때 예매 내역·보딩패스가 조용히 빈 채로 보였다)
   const [hasLoaded, setHasLoaded] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -53,7 +58,6 @@ export function BookingsProvider({ children }: { children: ReactNode }) {
       setBookings([]);
       setCoupons([]);
       setError(null);
-      setHasLoaded(true);
       setIsLoading(false);
       return;
     }
