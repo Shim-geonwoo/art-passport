@@ -79,6 +79,7 @@ export default function SignupScreen() {
             value={nickname}
             onChangeText={setNickname}
             placeholder="여권에 표시될 이름"
+            maxLength={20} // 프로필 편집 화면·DB 제약(users_nickname_not_blank)과 같은 상한
           />
           <TextField
             label="이메일"

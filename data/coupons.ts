@@ -55,11 +55,5 @@ export async function issueDueCoupons(): Promise<void> {
   }
 }
 
-// 쿠폰 하나를 사용완료 처리한다(DB 함수 — 본인 소유 + '사용가능' 상태일 때만 바뀐다).
-// 이름이 useX라 리액트 훅처럼 보일 수 있는데 그냥 비동기 함수다(훅 아님) — markCouponUsed로 구분.
-export async function markCouponUsed(couponId: string): Promise<void> {
-  const { error } = await supabase.rpc('use_coupon', { p_coupon_id: couponId });
-  if (error) {
-    throw error;
-  }
-}
+// 쿠폰 '사용완료' 처리는 여기 없다 — 예매를 만들 때 createBooking(data/bookings.ts) 안에서
+// 예매와 함께 한 번에 처리된다. 쿠폰만 따로 태우는 경로를 두면 예매와 어긋날 수 있어서다.

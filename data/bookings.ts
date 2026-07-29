@@ -5,6 +5,7 @@
 // 스탬프도 별도 테이블 없이 관람완료 bookings를 watched_at 순 정렬한 것으로 파생한다.
 
 import { EventItem, EventRow, mapEventRow } from '@/data/events';
+import { startOfDay } from '@/data/schedule';
 import { supabase } from '@/lib/supabase';
 
 export const COUPON_DISCOUNT_RATE = 10;
@@ -25,26 +26,25 @@ export type BookingRow = {
   event: EventRow;
 };
 
+// 관람일이 며칠 안 남았을 때를 "임박"으로 볼 것인가 (오늘 포함 3일 이내).
+export const SOON_THRESHOLD_DAYS = 3;
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
 export type DerivedBooking = {
   id: string;
   event: EventItem;
   showAt: Date; // = watched_at
   status: BookingStatus;
-  isBoardingPass: boolean; // 지금 보딩패스로 보여줘야 하는가
+  isBoardingPass: boolean; // 월렛(보딩패스)에 올라가는가 = 아직 관람 전인가
+  isSoon: boolean; // 관람이 임박했는가 (오늘 포함 3일 이내). 강조 표시용
+  daysUntilShow: number; // 관람일까지 며칠 남았나 (달력 기준, 오늘이면 0). 이미 지났으면 음수
   hasStamp: boolean; // 관람완료라서 스탬프가 찍혔는가
   quantity: number;
   discountRate: number; // 적용된 할인율(%). 쿠폰을 안 썼으면 0
   originalPrice: number;
   totalPrice: number;
 };
-
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-function startOfDay(date: Date): Date {
-  const copy = new Date(date);
-  copy.setHours(0, 0, 0, 0);
-  return copy;
-}
 
 // docs/data-structure.md "상태(status) 계산 규칙"을 그대로 코드로 옮긴다.
 function deriveBooking(row: BookingRow, now: Date): DerivedBooking {
@@ -59,12 +59,23 @@ function deriveBooking(row: BookingRow, now: Date): DerivedBooking {
     status = '관람완료';
   }
 
-  // 보딩패스: 예매완료 그리고 관람일이 "오늘 포함 3일 이내"(달력 기준)로 임박.
+  // 보딩패스: 예매가 끝나면 바로 월렛에 올라온다(= 예매완료인 모든 티켓).
+  // 예전에는 "관람 3일 전부터"만 보여줬는데, 예매하고 나서 한참 아무 데도 안 보이는 게
+  // "예매하면 티켓이 지갑에 들어온다"는 앱 컨셉과 맞지 않아 조건을 없앴다.
+  // 관람 시각이 지나면 status가 관람완료로 바뀌면서 자연스럽게 보딩패스에서 빠지고 스탬프가 된다.
+  const isBoardingPass = status === '예매완료';
+  const hasStamp = status === '관람완료';
+
+  // "며칠 남았나"는 시:분이 아니라 달력 날짜로 센다. 오늘 밤 공연이든 오늘 아침 공연이든
+  // 사용자에겐 똑같이 "오늘"이라서다. (오늘=0, 내일=1)
   const daysUntilShow = Math.round(
     (startOfDay(showAt).getTime() - startOfDay(now).getTime()) / MS_PER_DAY
   );
-  const isBoardingPass = status === '예매완료' && now < showAt && daysUntilShow <= 3;
-  const hasStamp = status === '관람완료';
+
+  // 임박: 월렛에 있는 티켓 중에서도 지금 챙겨야 할 것. 카드에 D-day 배지로 강조한다.
+  // isBoardingPass("월렛에 있나")와 일부러 나눠 둔다 — 예전엔 이 둘이 한 값이라
+  // "석 달 뒤 공연에도 '관람이 임박했어요'가 뜨는" 식으로 어긋났다.
+  const isSoon = isBoardingPass && daysUntilShow >= 0 && daysUntilShow <= SOON_THRESHOLD_DAYS;
 
   return {
     id: row.id,
@@ -72,6 +83,8 @@ function deriveBooking(row: BookingRow, now: Date): DerivedBooking {
     showAt,
     status,
     isBoardingPass,
+    isSoon,
+    daysUntilShow,
     hasStamp,
     quantity: row.quantity,
     discountRate: row.used_coupon_id ? COUPON_DISCOUNT_RATE : 0,
@@ -98,7 +111,8 @@ export function deriveAllBookings(rows: BookingRow[], now: Date = new Date()): D
   return rows.map((row) => deriveBooking(row, now));
 }
 
-// 보딩패스(월렛)용: 지금 임박한 티켓만, 관람일 가까운 순으로
+// 보딩패스(월렛)용: 아직 관람 전인 티켓만, 관람일 가까운 순으로
+// (가장 가까운 것이 맨 앞에 오므로, 스택 맨 앞이 곧 "다음에 갈 것"이 된다)
 export function deriveBoardingPasses(rows: BookingRow[], now: Date = new Date()): DerivedBooking[] {
   return deriveAllBookings(rows, now)
     .filter((b) => b.isBoardingPass)
@@ -137,6 +151,34 @@ export function passportPageInfo(rows: BookingRow[], now: Date = new Date()) {
     totalPages: Math.max(1, Math.ceil(total / STAMPS_PER_PAGE)),
     slotsUntilNextCoupon: total % STAMPS_PER_PAGE === 0 ? 0 : STAMPS_PER_PAGE - (total % STAMPS_PER_PAGE),
   };
+}
+
+// 예매 생성(DB 함수). 클라이언트는 "무엇을·몇 매·어떤 쿠폰으로·언제"만 말하고,
+// 관람 시각·할인율·금액은 서버가 events/event_schedules/coupons를 직접 읽어 계산한다.
+// 쿠폰 '사용완료' 표시도 같은 트랜잭션 안에서 함께 일어나므로, "할인만 받고 쿠폰은 남는" 어긋난
+// 상태가 생기지 않는다. 회차/날짜가 정말 그 공연 것인지, 이미 지난 일정은 아닌지도 서버가 확인한다.
+//
+// "언제"를 말하는 방법이 종류에 따라 다르다:
+//  - 공연(회차형): scheduleId — 고른 회차의 id
+//  - 전시(기간형): visitDate — 고른 관람 날짜 'YYYY-MM-DD' (관람 시각은 서버가 그날 18시로 정한다)
+export async function createBooking(params: {
+  eventId: string;
+  quantity: number;
+  couponId: string | null;
+  scheduleId?: string | null;
+  visitDate?: string | null;
+}): Promise<string> {
+  const { data, error } = await supabase.rpc('create_booking', {
+    p_event_id: params.eventId,
+    p_quantity: params.quantity,
+    p_coupon_id: params.couponId,
+    p_schedule_id: params.scheduleId ?? null,
+    p_visit_date: params.visitDate ?? null,
+  });
+  if (error) {
+    throw error;
+  }
+  return data as string;
 }
 
 // 예매 취소(DB 함수): is_cancelled를 켜고, 그 예매가 쿠폰을 썼으면 쿠폰도 다시 '사용가능'으로 되돌린다.

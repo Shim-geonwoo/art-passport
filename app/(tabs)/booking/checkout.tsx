@@ -13,24 +13,51 @@ import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from '
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackHeader } from '@/components/back-header';
+import { DateCalendar } from '@/components/date-calendar';
 import { GenreBadge } from '@/components/genre-badge';
+import { LoadError } from '@/components/load-error';
 import { Colors, Theme, ThemeColors } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
 import { useAuth } from '@/contexts/auth';
 import { useBookings } from '@/contexts/bookings';
 import { useEvents } from '@/contexts/events';
-import { COUPON_DISCOUNT_RATE } from '@/data/bookings';
-import { markCouponUsed } from '@/data/coupons';
-import { isBookable, pickWatchedAt } from '@/data/events';
-import { formatDate, formatDateTime } from '@/data/schedule';
+import { createBooking } from '@/data/bookings';
+import { EventItem, isBookable, upcomingSchedules } from '@/data/events';
+import {
+  formatDate,
+  formatDateTime,
+  formatMonthDayWeekday,
+  formatTime,
+  isSameDay,
+  MS_PER_DAY,
+  startOfDay,
+  startOfToday,
+  toDateKey,
+} from '@/data/schedule';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useNow } from '@/hooks/use-now';
-import { supabase } from '@/lib/supabase';
 
 // 자유석이라 좌석 지정은 없고, 인원(매수)만 고른다. 데모라 1~4매로 제한한다.
 const MIN_QUANTITY = 1;
 const MAX_QUANTITY = 4;
 const SEAT_INFO = '자유석';
+
+// 전시는 정해진 시각이 없어서 "그날 18시"를 관람 시각으로 본다.
+// 서버(create_booking)의 c_exhibition_hour와 반드시 같은 값이어야 한다 —
+// 화면에서 고를 수 있는 날과 서버가 받아주는 날이 어긋나지 않게 하려고 맞춰둔다.
+const EXHIBITION_HOUR = 18;
+
+// 전시에서 "오늘부터 고를 수 있나, 내일부터인가"를 정한다.
+// 오늘 18시가 아직 안 지났으면 오늘도 갈 수 있고, 지났으면 내일부터다.
+function earliestVisitDate(event: EventItem, now: Date): Date {
+  const closingToday = startOfToday(now);
+  closingToday.setHours(EXHIBITION_HOUR, 0, 0, 0);
+
+  const earliest =
+    now < closingToday ? startOfToday(now) : startOfToday(new Date(now.getTime() + MS_PER_DAY));
+  const opening = startOfToday(event.showAt);
+  return opening > earliest ? opening : earliest;
+}
 
 export default function CheckoutScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -38,7 +65,12 @@ export default function CheckoutScreen() {
   const theme: ThemeColors = colorScheme === 'dark' ? Theme.dark : Theme.light;
 
   const { user } = useAuth();
-  const { events, isLoading: eventsLoading } = useEvents();
+  const {
+    events,
+    isLoading: eventsLoading,
+    error: eventsError,
+    refresh: refreshEvents,
+  } = useEvents();
   const { coupons, refresh } = useBookings();
   const now = useNow();
 
@@ -46,6 +78,11 @@ export default function CheckoutScreen() {
 
   // 인원(매수). − / + 버튼으로 1~4 사이에서 조절한다.
   const [quantity, setQuantity] = useState(MIN_QUANTITY);
+
+  // 언제 관람할지. 공연이면 회차를, 전시면 날짜를 고른다(둘 중 하나만 쓰인다).
+  // 처음엔 아무것도 안 골라둔다 — 실수로 엉뚱한 회차를 예매하는 걸 막으려고, 직접 고르게 한다.
+  const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
 
   // 지금 쓸 수 있는 쿠폰 1장(있으면). 있으면 기본으로 적용해 둔다(혜택이라 사용자가 원할 가능성이 높다).
   // (쿠폰 자동 발급 로직은 아직 없어서, 실제 계정엔 당분간 쿠폰이 없는 게 정상이다)
@@ -62,6 +99,16 @@ export default function CheckoutScreen() {
     );
   }
 
+  // 카탈로그 조회가 실패한 거라면 "찾을 수 없음"이 아니라 다시 시도할 수 있게 해준다
+  if (eventsError && events.length === 0) {
+    return (
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top']}>
+        <BackHeader title="결제" color={theme.text} />
+        <LoadError message={eventsError} onRetry={refreshEvents} />
+      </SafeAreaView>
+    );
+  }
+
   if (!event) {
     return (
       <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top']}>
@@ -71,63 +118,109 @@ export default function CheckoutScreen() {
     );
   }
 
-  // 내가 실제로 관람할 날짜 (전시는 기간형이라 카탈로그 날짜와 다르다 — pickWatchedAt 참고)
-  const watchedAt = pickWatchedAt(event, now);
-  const whenText = event.showEndAt ? formatDate(watchedAt) : formatDateTime(watchedAt);
+  // 전시(기간형)인가 공연(회차형)인가 — 둘 다 달력으로 날짜를 고르고,
+  // 공연은 날짜를 고른 다음 그날의 회차(시간)를 한 번 더 고른다.
+  const isExhibition = !!event.showEndAt;
+
+  // 공연: 아직 안 지난 회차만 고를 수 있다.
+  const schedules = upcomingSchedules(event, now);
+  const selectedSchedule = schedules.find((s) => s.id === selectedScheduleId) ?? null;
+
+  // 공연에서 회차가 있는 날짜들 — 달력에서 이 날들만 고를 수 있게 넘긴다.
+  const scheduleDateKeys = new Set(schedules.map((s) => toDateKey(s.startsAt)));
+
+  // 고를 수 있는 날짜 범위
+  //  - 전시: 오늘(또는 전시 시작일) ~ 전시 종료일
+  //  - 공연: 남은 첫 회차의 날 ~ 남은 마지막 회차의 날
+  const minPickDate = isExhibition
+    ? earliestVisitDate(event, now)
+    : schedules.length > 0
+      ? startOfDay(schedules[0].startsAt)
+      : null;
+  const maxPickDate = isExhibition
+    ? startOfDay(event.showEndAt!)
+    : schedules.length > 0
+      ? startOfDay(schedules[schedules.length - 1].startsAt)
+      : null;
+
+  // 고를 날이 하루라도 남았는가. 전시는 마지막 날 18시가 지나면 기간이 안 끝났어도 갈 날이 없고,
+  // 공연은 남은 회차가 없으면 고를 날도 없다.
+  const canPickDate = !!minPickDate && !!maxPickDate && minPickDate <= maxPickDate;
+
+  // 공연에서 "고른 날짜"에 열리는 회차들 (보통 1~2개). 날짜를 안 골랐으면 빈 배열.
+  const schedulesOnSelectedDate = selectedDate
+    ? schedules.filter((s) => isSameDay(s.startsAt, selectedDate))
+    : [];
+
+  // 내가 실제로 관람할 시각 — 고른 회차/날짜에서 나온다. 아직 안 골랐으면 없다.
+  const whenText = selectedSchedule
+    ? formatDateTime(selectedSchedule.startsAt)
+    : selectedDate
+      ? formatDate(selectedDate)
+      : '선택 전';
 
   // 목록에서 걸러지지만, 화면을 열어둔 사이 공연 시각이 지나거나 딥링크로 바로 들어올 수 있어
   // 여기서도 예매 가능 여부를 확인한다. 불가하면 결제 버튼을 막는다.
-  const bookable = isBookable(event, now);
+  const bookable = isBookable(event, now) && canPickDate;
 
-  // 금액: 원가 → (쿠폰 적용 시) 10% 할인 → 결제금액
+  // 관람일(공연이면 회차까지)을 골랐는가. 안 골랐으면 결제 버튼을 막는다.
+  const whenChosen = isExhibition ? !!selectedDate : !!selectedSchedule;
+
+  // 날짜를 새로 고르면, 그 전에 골라둔 회차는 다른 날 것이라 더 이상 쓸 수 없다 → 같이 비운다.
+  // (같은 날을 다시 누른 경우엔 고른 회차를 그대로 둔다)
+  function handleSelectDate(date: Date) {
+    if (selectedDate && isSameDay(date, selectedDate)) {
+      return;
+    }
+    setSelectedDate(date);
+    setSelectedScheduleId(null);
+  }
+
+  // 금액: 원가 → (쿠폰 적용 시) 쿠폰의 할인율만큼 할인 → 결제금액
+  // 여기 계산은 화면에 미리 보여주기 위한 것이고, 실제로 저장되는 금액은 서버(create_booking)가
+  // events.price와 쿠폰 행을 다시 읽어 똑같은 식으로 계산한다.
+  const discountRate = usableCoupon?.discountRate ?? 0;
   const originalPrice = event.price * quantity;
   const couponApplied = !!usableCoupon && applyCoupon;
-  const discountAmount = couponApplied ? Math.round(originalPrice * (COUPON_DISCOUNT_RATE / 100)) : 0;
+  const discountAmount = couponApplied ? Math.round(originalPrice * (discountRate / 100)) : 0;
   const totalPrice = originalPrice - discountAmount;
 
   function changeQuantity(delta: number) {
     setQuantity((prev) => Math.min(MAX_QUANTITY, Math.max(MIN_QUANTITY, prev + delta)));
   }
 
-  // "테스트 결제하기": bookings 테이블에 실제로 예매 1건을 insert하고, 완료를 알린 뒤 예매 목록으로 돌아간다.
+  // "테스트 결제하기": 서버(create_booking)에 예매 1건을 만들어 달라고 하고, 완료를 알린 뒤 예매 목록으로 돌아간다.
   async function handlePay() {
-    if (!event || !bookable || !user || isSubmitting) {
+    if (!event || !bookable || !whenChosen || !user || isSubmitting) {
       return;
     }
 
     setIsSubmitting(true);
-    // 쿠폰을 적용했으면 그 쿠폰 id를 함께 저장한다
-    const { error: insertError } = await supabase.from('bookings').insert({
-      user_id: user.id,
-      event_id: event.id,
-      watched_at: watchedAt.toISOString(),
-      quantity,
-      used_coupon_id: couponApplied ? usableCoupon!.id : null,
-      original_price: originalPrice,
-      total_price: totalPrice,
-    });
-
-    if (insertError) {
+    try {
+      // 서버에 "무엇을·몇 매·어떤 쿠폰으로·언제"만 넘긴다. 관람 시각·금액 계산과 쿠폰 사용완료 처리,
+      // 고른 회차/날짜가 올바른지 확인하는 것까지 전부 create_booking 함수가 한 트랜잭션에서 처리한다.
+      await createBooking({
+        eventId: event.id,
+        quantity,
+        couponId: couponApplied ? usableCoupon!.id : null,
+        scheduleId: selectedSchedule?.id ?? null,
+        visitDate: selectedDate ? toDateKey(selectedDate) : null,
+      });
+    } catch (error) {
       setIsSubmitting(false);
-      const message = '결제 처리 중 문제가 생겼어요. 잠시 후 다시 시도해주세요.';
       if (Platform.OS === 'web') {
-        window.alert(message);
+        window.alert(payErrorMessage(error));
       } else {
-        Alert.alert('결제 실패', message);
+        Alert.alert('결제 실패', payErrorMessage(error));
       }
       return;
-    }
-
-    // 쿠폰을 썼으면 사용완료로 표시해둔다 (본인 소유 쿠폰인지는 DB 함수가 검증한다)
-    if (couponApplied && usableCoupon) {
-      await markCouponUsed(usableCoupon.id);
     }
 
     // 보딩패스·여권·마이페이지가 방금 만든 예매를 바로 보게 한다
     await refresh();
     setIsSubmitting(false);
 
-    const couponLine = couponApplied ? `\n쿠폰 ${COUPON_DISCOUNT_RATE}% 할인 적용` : '';
+    const couponLine = couponApplied ? `\n쿠폰 ${discountRate}% 할인 적용` : '';
     const detail = `${event.title}\n${whenText} · ${event.venueName}\n${SEAT_INFO} ${quantity}매 · ${totalPrice.toLocaleString('ko-KR')}원${couponLine}`;
 
     // 완료 후에는 결제·상세를 건너뛰고 예매 목록으로 바로 돌아온다 (뒤로가기로 결제창에 안 걸리게)
@@ -152,6 +245,64 @@ export default function CheckoutScreen() {
           <Text style={[styles.title, { color: theme.text }]}>{event.title}</Text>
           <GenreBadge genre={event.genre} />
         </View>
+
+        {/* 1단계: 관람일 고르기 (전시·공연 공통, 달력) */}
+        <View style={styles.whenBlock}>
+          <Text style={[styles.sectionLabel, { color: theme.text }]}>관람일</Text>
+          <Text style={[styles.sectionHint, { color: theme.textSecondary }]}>
+            {isExhibition
+              ? `${formatDate(event.showAt)} ~ ${formatDate(event.showEndAt!)} 중 하루를 고르세요`
+              : '공연이 있는 날만 고를 수 있어요'}
+          </Text>
+        </View>
+
+        {canPickDate ? (
+          <DateCalendar
+            minDate={minPickDate!}
+            maxDate={maxPickDate!}
+            selected={selectedDate}
+            onSelect={handleSelectDate}
+            theme={theme}
+            // 전시는 기간 안 아무 날이나 가능해서 안 넘긴다. 공연은 회차가 있는 날만.
+            availableDates={isExhibition ? undefined : scheduleDateKeys}
+          />
+        ) : (
+          <Text style={[styles.emptyWhen, { color: theme.textSecondary }]}>
+            {isExhibition ? '관람할 수 있는 날이 남지 않았어요.' : '예매할 수 있는 회차가 남지 않았어요.'}
+          </Text>
+        )}
+
+        {/* 2단계: 공연은 고른 날짜의 회차(시간)를 한 번 더 고른다. 전시는 이 단계가 없다. */}
+        {!isExhibition && canPickDate ? (
+          <>
+            <View style={styles.whenBlock}>
+              <Text style={[styles.sectionLabel, { color: theme.text }]}>회차</Text>
+              {selectedDate ? (
+                <Text style={[styles.sectionHint, { color: theme.textSecondary }]}>
+                  {formatMonthDayWeekday(selectedDate)}
+                </Text>
+              ) : null}
+            </View>
+
+            {selectedDate ? (
+              <View style={styles.timeRow}>
+                {schedulesOnSelectedDate.map((schedule) => (
+                  <TimeChip
+                    key={schedule.id}
+                    label={formatTime(schedule.startsAt)}
+                    selected={schedule.id === selectedScheduleId}
+                    onPress={() => setSelectedScheduleId(schedule.id)}
+                    theme={theme}
+                  />
+                ))}
+              </View>
+            ) : (
+              <Text style={[styles.emptyWhen, { color: theme.textSecondary }]}>
+                날짜를 먼저 골라주세요.
+              </Text>
+            )}
+          </>
+        ) : null}
 
         {/* 관람 정보 카드 */}
         <View style={[styles.card, { backgroundColor: theme.emptyCellBackground }]}>
@@ -190,7 +341,7 @@ export default function CheckoutScreen() {
             <View style={styles.couponInfo}>
               <Text style={[styles.couponTitle, { color: theme.text }]}>{usableCoupon.benefit}</Text>
               <Text style={[styles.couponMeta, { color: theme.textSecondary }]}>
-                {COUPON_DISCOUNT_RATE}% 할인 쿠폰 사용
+                {discountRate}% 할인 쿠폰 사용
               </Text>
             </View>
             {/* 체크 표시: 적용 중이면 골드 채움, 아니면 빈 테두리 */}
@@ -218,7 +369,7 @@ export default function CheckoutScreen() {
             <>
               <Divider theme={theme} />
               <InfoRow
-                label={`쿠폰 할인 (${COUPON_DISCOUNT_RATE}%)`}
+                label={`쿠폰 할인 (${discountRate}%)`}
                 value={`-${discountAmount.toLocaleString('ko-KR')}원`}
                 theme={theme}
               />
@@ -237,19 +388,65 @@ export default function CheckoutScreen() {
       {/* 하단 고정 결제 버튼. 예매 마감(지난 공연/종료된 전시)이면 막고 안내한다. */}
       <View style={[styles.bottomBar, { backgroundColor: theme.background }]}>
         <Pressable
-          style={[styles.payButton, (!bookable || isSubmitting) && styles.payButtonDisabled]}
+          style={[
+            styles.payButton,
+            (!bookable || !whenChosen || isSubmitting) && styles.payButtonDisabled,
+          ]}
           onPress={handlePay}
-          disabled={!bookable || isSubmitting}>
+          disabled={!bookable || !whenChosen || isSubmitting}>
           <Text style={styles.payButtonText}>
             {!bookable
               ? '예매 마감된 공연이에요'
-              : isSubmitting
-                ? '처리 중...'
-                : `${totalPrice.toLocaleString('ko-KR')}원 테스트 결제하기`}
+              : !selectedDate
+                ? '관람일을 선택해주세요'
+                : !whenChosen
+                  ? '회차를 선택해주세요' // 날짜는 골랐는데 공연 회차를 아직 안 고른 경우
+                  : isSubmitting
+                    ? '처리 중...'
+                    : `${totalPrice.toLocaleString('ko-KR')}원 테스트 결제하기`}
           </Text>
         </Pressable>
       </View>
     </SafeAreaView>
+  );
+}
+
+// 결제 실패 시 보여줄 문구를 고른다.
+// create_booking 함수가 일부러 던지는 안내(예: "예매가 마감된 공연입니다.")는 사용자에게
+// 그대로 보여주고, 그 밖의 예상 못 한 오류는 일반적인 문구로 바꾼다(DB 내부 메시지 노출 방지).
+// 아래 코드들은 마이그레이션에서 raise exception에 붙여둔 errcode다.
+const KNOWN_ERROR_CODES = ['22023', 'P0002', '42501'];
+
+function payErrorMessage(error: unknown): string {
+  const code = (error as { code?: string } | null)?.code;
+  const message = (error as { message?: string } | null)?.message;
+  if (code && message && KNOWN_ERROR_CODES.includes(code)) {
+    return message;
+  }
+  return '결제 처리 중 문제가 생겼어요. 잠시 후 다시 시도해주세요.';
+}
+
+// 회차 시간 알약 (공연). 고른 날짜에 열리는 시간들을 옆으로 늘어놓고 하나를 고른다.
+// 고른 것은 달력에서 고른 날과 똑같이 골드로 채워서, 같은 "선택" 표시로 읽히게 맞춘다.
+function TimeChip({
+  label,
+  selected,
+  onPress,
+  theme,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+  theme: ThemeColors;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[styles.timeChip, { borderColor: theme.dashedBorder }, selected && styles.timeChipOn]}>
+      <Text style={[styles.timeChipText, { color: theme.text }, selected && styles.timeChipTextOn]}>
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -364,6 +561,46 @@ const styles = StyleSheet.create({
   },
   infoValueEmphasis: {
     fontSize: 18, // 결제금액 강조
+  },
+
+  // 관람일/회차 고르기
+  whenBlock: {
+    paddingHorizontal: 4,
+    gap: 4,
+  },
+  sectionHint: {
+    fontFamily: Fonts.regular,
+    fontSize: 12,
+  },
+  emptyWhen: {
+    fontFamily: Fonts.regular,
+    fontSize: 13,
+    textAlign: 'center',
+    paddingVertical: 20,
+  },
+  // 회차 시간 알약들 (한 줄에 다 안 들어가면 다음 줄로 넘어간다)
+  timeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingHorizontal: 4,
+  },
+  timeChip: {
+    borderWidth: 1,
+    borderRadius: 8, // radius-button
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  timeChipOn: {
+    backgroundColor: Colors.gold,
+    borderColor: Colors.gold,
+  },
+  timeChipText: {
+    fontFamily: Fonts.medium,
+    fontSize: 14,
+  },
+  timeChipTextOn: {
+    color: Colors.textOnColor,
   },
 
   // 쿠폰 적용 토글 행
