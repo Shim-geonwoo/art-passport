@@ -5,19 +5,27 @@
 // 로그인 상태가 바뀔 때(로그인/로그아웃) 한 번 불러와 공유한다.
 // (docs/data-flow.md의 예매 → 보딩패스 → 스탬프 연쇄)
 //
-// 예매 생성 자체는 checkout 화면이 Supabase에 직접 insert하고, 끝나면 refresh()를 불러서
+// 예매 생성 자체는 checkout 화면이 서버 함수(createBooking)를 부르고, 끝나면 refresh()를 불러서
 // 이 목록을 최신 상태로 다시 받아온다.
+//
+// 조회에 실패했을 때(네트워크 끊김 등)는 조용히 넘어가지 않는다 — 첫 조회부터 실패하면 보여줄 게
+// 없으니 전체 화면으로 알리고 다시 시도하게 하고, 쓰다가 실패한 경우엔 받아둔 목록을 그대로
+// 유지하면서 error 값만 내보낸다. (실패가 "예매 0건"처럼 보이면 안 되니까)
 
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
+import { LoadError } from '@/components/load-error';
 import { useAuth } from '@/contexts/auth';
 import { BookingRow, cancelBooking, fetchBookings } from '@/data/bookings';
 import { Coupon, fetchCoupons, issueDueCoupons } from '@/data/coupons';
+
+const LOAD_ERROR_MESSAGE = '예매 정보를 불러오지 못했어요.';
 
 type BookingsValue = {
   bookings: BookingRow[];
   coupons: Coupon[];
   isLoading: boolean;
+  error: string | null; // 마지막 조회가 실패했으면 안내 문구, 성공했으면 null
   refresh: () => Promise<void>; // bookings/coupons를 다시 불러온다 (예매 직후 등)
   cancel: (bookingId: string) => Promise<void>; // 예매 취소 후 자동으로 refresh까지 한다
 };
@@ -29,12 +37,18 @@ export function BookingsProvider({ children }: { children: ReactNode }) {
   const [bookings, setBookings] = useState<BookingRow[]>([]);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  // 한 번이라도 목록을 받아온 적이 있는가. "첫 조회부터 실패한 것"과 "쓰다가 한 번 실패한 것"을
+  // 구분하려고 둔다 — 앞의 경우엔 보여줄 게 아예 없어서 전체 화면으로 안내해야 한다.
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!user) {
       // 로그아웃 상태면 보여줄 게 없다 (Stack.Protected가 어차피 이 화면들을 안 보여준다)
       setBookings([]);
       setCoupons([]);
+      setError(null);
+      setHasLoaded(true);
       setIsLoading(false);
       return;
     }
@@ -45,6 +59,12 @@ export function BookingsProvider({ children }: { children: ReactNode }) {
       const [bookingRows, couponRows] = await Promise.all([fetchBookings(), fetchCoupons()]);
       setBookings(bookingRows);
       setCoupons(couponRows);
+      setError(null);
+      setHasLoaded(true);
+    } catch {
+      // 조회 실패(네트워크 끊김 등). 예전엔 여기서 그냥 터져서 "예매 0건"처럼 보였는데,
+      // 이제는 실패했다고 표시하고 이미 받아둔 목록은 그대로 둔다(화면이 갑자기 비지 않게).
+      setError(LOAD_ERROR_MESSAGE);
     } finally {
       setIsLoading(false);
     }
@@ -64,13 +84,20 @@ export function BookingsProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<BookingsValue>(
-    () => ({ bookings, coupons, isLoading, refresh, cancel }),
-    [bookings, coupons, isLoading, refresh, cancel]
+    () => ({ bookings, coupons, isLoading, error, refresh, cancel }),
+    [bookings, coupons, isLoading, error, refresh, cancel]
   );
 
   // 처음 불러오는 동안엔 아무것도 그리지 않는다 (짧은 순간, 로그인 직후에만 보인다)
-  if (isLoading) {
+  if (isLoading && !hasLoaded) {
     return null;
+  }
+
+  // 첫 조회부터 실패하면 보여줄 데이터가 아예 없다 → 전체 화면으로 알리고 다시 시도하게 한다.
+  // (한 번이라도 성공한 뒤의 실패는 화면을 뺏지 않는다. 받아둔 목록을 계속 보여주고,
+  //  대신 error 값을 내보내서 필요한 화면이 알아서 안내하도록 둔다)
+  if (error && !hasLoaded) {
+    return <LoadError message={error} onRetry={refresh} />;
   }
 
   return <BookingsContext.Provider value={value}>{children}</BookingsContext.Provider>;

@@ -11,6 +11,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GenreBadge } from '@/components/genre-badge';
+import { LoadError } from '@/components/load-error';
 import { CategoryColors, Colors, Genre, Theme } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
 import { useEvents } from '@/contexts/events';
@@ -29,7 +30,7 @@ export default function BookingListScreen() {
   const [selectedGenre, setSelectedGenre] = useState<Genre>(GENRES[0]);
 
   const now = useNow();
-  const { events, isLoading, error } = useEvents();
+  const { events, isLoading, error, refresh } = useEvents();
 
   // 선택한 카테고리 중, 아직 예매 가능한(지나거나 종료되지 않은) 이벤트만 보여준다.
   const filteredEvents = events.filter(
@@ -55,23 +56,27 @@ export default function BookingListScreen() {
       </View>
 
       {/* 선택된 카테고리의 공연 목록 (세로 스크롤) */}
-      {/* flex:1로 탭 바를 뺀 나머지 세로 공간을 차지하고, 그 안에서만 스크롤되게 한다 */}
-      <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
-        {error ? (
-          <Text style={[styles.statusText, { color: theme.textSecondary }]}>{error}</Text>
-        ) : isLoading ? (
-          <Text style={[styles.statusText, { color: theme.textSecondary }]}>불러오는 중...</Text>
-        ) : (
-          filteredEvents.map((event, index) => (
-            <EventCard
-              key={event.id}
-              event={event}
-              theme={theme}
-              showDivider={index !== filteredEvents.length - 1}
-            />
-          ))
-        )}
-      </ScrollView>
+      {/* 카탈로그를 못 불러왔고 보여줄 목록도 없으면, 목록 자리에 안내 + 다시 시도를 놓는다.
+          (한 번 받아둔 목록이 있으면 그건 계속 보여준다 — 실패했다고 화면을 뺏지 않는다) */}
+      {error && events.length === 0 ? (
+        <LoadError message={error} onRetry={refresh} />
+      ) : (
+        /* flex:1로 탭 바를 뺀 나머지 세로 공간을 차지하고, 그 안에서만 스크롤되게 한다 */
+        <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
+          {isLoading ? (
+            <Text style={[styles.statusText, { color: theme.textSecondary }]}>불러오는 중...</Text>
+          ) : (
+            filteredEvents.map((event, index) => (
+              <EventCard
+                key={event.id}
+                event={event}
+                theme={theme}
+                showDivider={index !== filteredEvents.length - 1}
+              />
+            ))
+          )}
+        </ScrollView>
+      )}
     </SafeAreaView>
   );
 }

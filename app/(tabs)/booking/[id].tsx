@@ -9,6 +9,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GenreBadge } from '@/components/genre-badge';
+import { LoadError } from '@/components/load-error';
 import { CategoryColors, Colors, Theme } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
 import { useEvents } from '@/contexts/events';
@@ -20,7 +21,7 @@ export default function BookingDetailScreen() {
   const colorScheme = useColorScheme();
   const theme = colorScheme === 'dark' ? Theme.dark : Theme.light;
 
-  const { events, isLoading } = useEvents();
+  const { events, isLoading, error, refresh } = useEvents();
   const event = events.find((item) => item.id === id);
 
   // "예매하기"를 누르면 결제(checkout) 화면으로 넘어간다. 실제 예매 생성은 거기서 한다.
@@ -37,6 +38,17 @@ export default function BookingDetailScreen() {
     return (
       <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]}>
         <Text style={[styles.notFoundText, { color: theme.text }]}>불러오는 중...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  // 카탈로그를 못 불러온 것과 "그런 공연이 없는 것"은 다르다.
+  // 조회가 실패한 거라면 다시 시도할 수 있게 해준다 (아래 "찾을 수 없어요"로 넘기면
+  // 사용자는 공연이 사라진 줄 알고 그냥 돌아가게 된다)
+  if (error && events.length === 0) {
+    return (
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]}>
+        <LoadError message={error} onRetry={refresh} />
       </SafeAreaView>
     );
   }
