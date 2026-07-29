@@ -1,50 +1,176 @@
-# Welcome to your Expo app 👋
+# Art Passport
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+문화예술 공연·전시를 예매하고, 관람 기록을 여권처럼 모으는 모바일 앱.
 
-## Get started
+**"예매가 끝이 아니라 시작"** 이라는 문제의식에서 출발했다. 대부분의 예매 앱은 결제가 끝나면
+할 일이 끝나지만, 정작 사용자에게 남는 건 그 뒤의 경험이다. Art Passport는 예매한 티켓을
+**보딩패스**로 지갑에 넣어두고, 관람이 끝나면 그 포스터가 **여권 스탬프**로 찍히며,
+스탬프 9개를 채우면 **할인 쿠폰**이 나온다.
 
-1. Install dependencies
+> 포트폴리오·데모용 프로젝트다. 결제는 실제 PG 연동 없이 테스트 결제만 동작한다.
 
-   ```bash
-   npm install
-   ```
+---
 
-2. Start the app
+## 핵심 흐름
 
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```
+ 예매하기 ──▶ 보딩패스(월렛)  ──▶  관람 시각이 지나면  ──▶ 여권 스탬프
+                  │                                          │
+              D-day 배지                                 9칸 채우면
+             (3일 이내 강조)                          쿠폰 1장 (10% 할인)
+                                                            │
+                                              다음 예매에 적용 ─┘
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+한 건의 예매가 상태를 바꿔가며 앱 전체를 관통한다. 티켓을 사면 즉시 지갑에 들어오고,
+관람 시각이 지나는 순간 지갑에서 빠지면서 여권에 스탬프가 찍힌다.
+**이 전환에 배치 작업이나 크론이 하나도 없다** — 아래 "설계 노트" 참고.
 
-## Learn more
+---
 
-To learn more about developing your project with Expo, look at the following resources:
+## 화면
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+| 탭 | 하는 일 |
+|---|---|
+| **보딩패스** | 아직 관람 전인 티켓을 애플 월렛처럼 겹쳐 쌓는다. 카테고리별 색, QR, D-day 배지 |
+| **예매** | 공연·전시 50건 카탈로그. 검색·카테고리 필터 → 상세 → 관람일/회차 선택 → 테스트 결제 |
+| **여권** | 관람 완료한 공연의 포스터가 3×3 스탬프로 찍힌다. 9칸 = 1페이지 = 쿠폰 1장 |
+| **마이페이지** | 예매 관리(취소 포함), 리워드(쿠폰), 프로필 편집, 설정 |
 
-## Join the community
+인증은 이메일/비밀번호. 비밀번호 재설정(6자리 코드), 인증메일 재발송, 회원 탈퇴까지 동작한다.
 
-Join our community of developers creating universal apps.
+---
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## 기술 스택
+
+| | |
+|---|---|
+| 프론트엔드 | React Native + Expo (SDK 54), TypeScript |
+| 라우팅 | Expo Router (파일 기반) |
+| 백엔드 | Supabase — Postgres, Auth, Storage, RLS |
+| 결제 | 테스트 결제만 (실제 PG 연동 없음) |
+
+---
+
+## 설계 노트
+
+이 프로젝트에서 가장 신경 쓴 두 가지다.
+
+### 1. 상태를 저장하지 않고 계산한다
+
+예매 상태(예매완료/관람완료/취소)를 컬럼에 저장하지 않는다.
+저장하는 건 **`is_cancelled` 하나뿐**이고, 나머지는 조회할 때 `watched_at`과 현재 시각을 비교해
+계산한다. 스탬프도 별도 테이블이 없다 — 관람 시각이 지난 예매를 정렬한 것이 곧 스탬프 목록이다.
+
+덕분에 **"관람 시각이 지나면 스탬프로 바꿔주는" 배치 작업이 필요 없다.** 시각이 지나는 순간부터
+그렇게 보인다. 쿠폰 만료도 같은 방식이라(`expires_at` vs 현재 시각) 만료 처리 크론이 없다.
+
+예외는 회차별 잔여석(`sold_count`) 하나다. 클라이언트는 RLS 때문에 남의 예매를 볼 수 없어
+계산할 방법이 없어서 트리거로 유지한다. 대신 **값을 더하고 빼지 않고 매번 다시 세서** 어긋날
+여지를 없앴다.
+
+### 2. 믿으면 안 되는 값은 서버가 다시 계산한다
+
+앱은 `bookings`·`coupons`를 직접 쓰지 못한다. RLS는 조회만 열려 있고, 쓰기는 서버 함수
+(`SECURITY DEFINER`)로만 한다. 클라이언트는 **"무엇을·몇 매·어떤 쿠폰으로·언제"** 만 말하고,
+관람 시각·할인율·금액은 서버가 `events`/`coupons`를 다시 읽어 계산한다.
+
+이게 중요한 이유는 1번 설계 때문이다. 상태를 `watched_at`으로 계산하므로, 클라이언트가
+`watched_at`을 정할 수 있으면 **과거 시각을 적어 스탬프를 즉시 만들어낼 수 있다.**
+스탬프 9개 = 쿠폰 1장이므로 그건 곧 할인 발급 권한이 된다.
+
+| 함수 | 하는 일 |
+|---|---|
+| `create_booking` | 예매 생성 + 쿠폰 사용 처리 (한 트랜잭션). 회차 행을 잠그고 잔여석을 직접 세어 초과 판매를 막는다 |
+| `cancel_booking` | 취소 + 썼던 쿠폰 반환 |
+| `issue_due_coupons` | 스탬프 9개마다 쿠폰 발급 |
+| `delete_own_account` | 회원 탈퇴 (`auth.uid()`로만 지워 남의 계정을 지목할 수 없다) |
+
+자세한 내용은 [`docs/data-structure.md`](docs/data-structure.md)에 정리돼 있다.
+
+---
+
+## 로컬에서 실행하기
+
+### 1. 의존성 설치
+
+```bash
+npm install
+```
+
+### 2. Supabase 프로젝트 연결
+
+[supabase.com](https://supabase.com)에서 프로젝트를 만든 뒤, `.env.example`을 복사해 `.env`를 만들고
+값을 채운다. (`.env`는 커밋되지 않는다)
+
+```bash
+cp .env.example .env
+```
+
+```
+EXPO_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-public-key
+```
+
+### 3. 데이터베이스 준비
+
+마이그레이션 12개를 적용한다. 스키마·RLS·서버 함수와 함께 **공연·전시 50건이 시드로 들어간다.**
+
+```bash
+npx supabase link --project-ref <your-project-ref>
+npx supabase db push
+```
+
+비밀번호 재설정에 6자리 코드를 쓰므로 대시보드에서 한 가지를 더 설정해야 한다:
+**Authentication → Email Templates → Reset Password** 템플릿에 `{{ .Token }}`을 넣는다.
+(기본 템플릿은 링크만 보내서 코드 입력칸에 넣을 값이 오지 않는다)
+
+### 4. 실행
+
+```bash
+npm start
+```
+
+Expo Go로 QR을 스캔하거나, 터미널에서 `a`(Android) / `i`(iOS) / `w`(웹)를 누른다.
+
+---
+
+## 운영 노트
+
+**카탈로그 날짜 밀기.** 시드의 공연 날짜는 고정 timestamp라 시간이 지나면 하나씩 지나가고,
+결국 예매할 게 남지 않는다. 데모 전에 SQL Editor에서 한 번 돌리면 된다.
+
+```sql
+select shift_catalog_dates();
+```
+
+전체를 같은 일수만큼(요일이 유지되도록 7의 배수로) 밀어 "시드를 방금 넣은 상태"로 되돌린다.
+돌려주는 값이 실제로 민 일수이고, **0이면 아직 밀 필요가 없다는 뜻이라 언제 돌려도 안전하다.**
+예매 기록(`bookings.watched_at`)은 건드리지 않는다 — 이미 찍힌 스탬프가 뒤바뀌면 안 되기 때문이다.
+
+---
+
+## 문서
+
+설계 판단의 근거는 대부분 문서에 남겨뒀다.
+
+| 문서 | 내용 |
+|---|---|
+| [`docs/desing-concept.md`](docs/desing-concept.md) | 디자인 컨셉 3가지 (Glanceable / Stack & Collect / Living Pass) |
+| [`docs/design-system.md`](docs/design-system.md) | 색·타이포·간격 토큰. `design-system.html`은 브라우저용 시각 가이드 |
+| [`docs/design-components.md`](docs/design-components.md) | 컴포넌트별 실측값과 규칙 |
+| [`docs/data-structure.md`](docs/data-structure.md) | 테이블 정의, 쓰기 경로, 파생 규칙 |
+| [`docs/data-flow.md`](docs/data-flow.md) | 예매 → 보딩패스 → 스탬프 → 취소 상태 연쇄 |
+| [`docs/content-examples.md`](docs/content-examples.md) | 카테고리별 예시 콘텐츠 50건 |
+
+`docs/*.png`는 피그마 시안이다(실제 스크린샷이 아니다).
+
+---
+
+## 아직 안 한 것
+
+- **포스터 이미지와 소개글** — 시드의 `poster_url`은 임시 이미지고 `description`은 비어 있다.
+  저작권 문제로 실제 포스터를 넣을 수 없어 관리자 모드에서 채우는 방향으로 미뤄뒀다.
+  프로필 이미지로 Storage 연동은 끝나 있어서 버킷만 추가하면 된다.
+- **관리자 모드** — 공연 등록·수정이 아직 없다. 지금은 시드와 SQL로 관리한다.
+- **지정석** — 좌석맵 없이 "자유석 + 인원" 모델이다.
