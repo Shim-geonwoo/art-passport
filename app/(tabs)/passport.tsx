@@ -20,6 +20,7 @@ import { CategoryColors, CategoryIcons, Colors, Theme } from '@/constants/colors
 import { Fonts } from '@/constants/fonts';
 import { useBookings } from '@/contexts/bookings';
 import { deriveStamps, Stamp, STAMPS_PER_PAGE } from '@/data/bookings';
+import { isCouponUsable } from '@/data/coupons';
 import { formatDate } from '@/data/schedule';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useNow } from '@/hooks/use-now';
@@ -75,7 +76,7 @@ export default function PassportScreen() {
   // 예전엔 화면 안의 claimedPages(useState)로 "이미 챙긴 페이지"를 기억했는데, 그건 앱을 껐다
   // 켜면 사라져서 이미 받은 쿠폰인데도 배너가 다시 떴다. 이 프로젝트의 원칙대로 —
   // 저장하지 않고 파생한다 — 실제 쿠폰 상태에서 계산하니 앱을 다시 켜도, 기기를 바꿔도 맞는다.
-  const showReward = isPageComplete && (!pageCoupon || pageCoupon.status === '사용가능');
+  const showReward = isPageComplete && (!pageCoupon || isCouponUsable(pageCoupon, now));
 
   // 그리드의 실제 가로 폭을 측정해서 칸 하나의 정확한 px 크기를 계산한다
   // (점선 테두리를 SVG로 정확히 그리려면 %가 아니라 실제 px 값이 필요하다)

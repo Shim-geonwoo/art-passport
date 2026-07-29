@@ -22,6 +22,7 @@ import { useAuth } from '@/contexts/auth';
 import { useBookings } from '@/contexts/bookings';
 import { useEvents } from '@/contexts/events';
 import { createBooking } from '@/data/bookings';
+import { isCouponUsable } from '@/data/coupons';
 import { EventItem, isBookable, upcomingSchedules } from '@/data/events';
 import {
   formatDate,
@@ -85,8 +86,8 @@ export default function CheckoutScreen() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
 
   // 지금 쓸 수 있는 쿠폰 1장(있으면). 있으면 기본으로 적용해 둔다(혜택이라 사용자가 원할 가능성이 높다).
-  // (쿠폰 자동 발급 로직은 아직 없어서, 실제 계정엔 당분간 쿠폰이 없는 게 정상이다)
-  const usableCoupon = coupons.find((c) => c.status === '사용가능') ?? null;
+  // 유효기간이 지난 쿠폰은 isCouponUsable이 걸러낸다 (서버도 같은 조건으로 한 번 더 확인한다).
+  const usableCoupon = coupons.find((c) => isCouponUsable(c, now)) ?? null;
   const [applyCoupon, setApplyCoupon] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 

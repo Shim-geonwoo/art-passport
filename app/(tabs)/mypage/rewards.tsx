@@ -14,7 +14,8 @@ import { Colors, Theme, ThemeColors } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
 import { useBookings } from '@/contexts/bookings';
 import { passportPageInfo, STAMPS_PER_PAGE } from '@/data/bookings';
-import { Coupon, CouponStatus } from '@/data/coupons';
+import { Coupon, couponStatus, CouponStatus } from '@/data/coupons';
+import { formatDate } from '@/data/schedule';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useNow } from '@/hooks/use-now';
 
@@ -38,7 +39,8 @@ export default function RewardsScreen() {
 
   const { bookings, coupons: allCoupons } = useBookings();
 
-  const coupons = allCoupons.filter((c) => c.status === couponFilter);
+  // 상태는 저장된 값이 아니라 지금 시각 기준으로 계산한다(만료는 시각이 지나면 그 순간부터다)
+  const coupons = allCoupons.filter((c) => couponStatus(c, now) === couponFilter);
 
   const pageInfo = passportPageInfo(bookings, now);
   // 현재 페이지에 채워진 스탬프 수 (딱 9의 배수면 9/9로 표시)
@@ -74,7 +76,7 @@ export default function RewardsScreen() {
 
         <View style={styles.chipRow}>
           {COUPON_FILTERS.map((status) => {
-            const count = allCoupons.filter((c) => c.status === status).length;
+            const count = allCoupons.filter((c) => couponStatus(c, now) === status).length;
             const selected = status === couponFilter;
             return (
               <Pressable
@@ -101,7 +103,7 @@ export default function RewardsScreen() {
             {coupons.map((coupon, index) => (
               <View key={coupon.id}>
                 {index > 0 && <View style={[styles.divider, { backgroundColor: theme.dashedBorder }]} />}
-                <CouponRow coupon={coupon} theme={theme} />
+                <CouponRow coupon={coupon} now={now} theme={theme} />
               </View>
             ))}
           </View>
@@ -111,15 +113,27 @@ export default function RewardsScreen() {
   );
 }
 
-function CouponRow({ coupon, theme }: { coupon: Coupon; theme: ThemeColors }) {
+function CouponRow({ coupon, now, theme }: { coupon: Coupon; now: Date; theme: ThemeColors }) {
+  const status = couponStatus(coupon, now);
+
+  // 유효기간 안내. 이미 쓴 쿠폰엔 붙이지 않는다 — 그때는 남은 기간이 의미가 없다.
+  const periodText =
+    status === '사용가능'
+      ? ` · ${formatDate(coupon.expiresAt)}까지`
+      : status === '만료'
+        ? ` · ${formatDate(coupon.expiresAt)} 만료`
+        : '';
+
   return (
     <View style={styles.row}>
       <View style={styles.rowInfo}>
         <Text style={[styles.rowTitle, { color: theme.text }]}>{coupon.benefit}</Text>
-        <Text style={[styles.rowMeta, { color: theme.textSecondary }]}>{coupon.discountRate}% 할인</Text>
+        <Text style={[styles.rowMeta, { color: theme.textSecondary }]}>
+          {coupon.discountRate}% 할인{periodText}
+        </Text>
       </View>
-      <View style={[styles.badge, { backgroundColor: COUPON_STATUS_COLOR[coupon.status] }]}>
-        <Text style={styles.badgeText}>{coupon.status}</Text>
+      <View style={[styles.badge, { backgroundColor: COUPON_STATUS_COLOR[status] }]}>
+        <Text style={styles.badgeText}>{status}</Text>
       </View>
     </View>
   );

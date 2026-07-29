@@ -13,6 +13,7 @@ import { Fonts } from '@/constants/fonts';
 import { useAuth } from '@/contexts/auth';
 import { useBookings } from '@/contexts/bookings';
 import { deriveAllBookings, passportPageInfo } from '@/data/bookings';
+import { isCouponUsable } from '@/data/coupons';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useNow } from '@/hooks/use-now';
 
@@ -31,7 +32,7 @@ export default function MyPageHomeScreen() {
 
   const bookingCount = deriveAllBookings(bookings, now).length;
   const pageInfo = passportPageInfo(bookings, now);
-  const availableCouponCount = coupons.filter((c) => c.status === '사용가능').length;
+  const availableCouponCount = coupons.filter((c) => isCouponUsable(c, now)).length;
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top']}>

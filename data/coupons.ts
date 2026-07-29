@@ -5,18 +5,23 @@
 // 사용(예매에 적용) 처리는 여기 없다 — 예매를 만들 때 createBooking(data/bookings.ts) 안에서
 // 예매와 한 트랜잭션으로 함께 처리된다.
 //
-// 아직 없는 것: '만료' 상태. status 값으로는 정의돼 있고 리워드함에 필터도 있지만,
-// 유효기간 칸(expires_at)도 만료시키는 로직도 없어서 실제로 만료되는 쿠폰은 없다.
+// 유효기간은 발급일 + 90일이다. 이 규칙은 DB의 expires_at 기본값에 들어 있어서,
+// 어느 경로로 발급하든(나중에 관리자 모드가 생겨도) 자동으로 붙는다.
 
 import { supabase } from '@/lib/supabase';
 
 export type CouponStatus = '사용가능' | '사용완료' | '만료';
 
+// DB가 저장하는 것은 "썼는가"(isUsed)와 "언제까지인가"(expiresAt) 둘뿐이다.
+// '만료'는 저장하지 않고 couponStatus()가 계산한다 — bookings가 is_cancelled 하나만 저장하고
+// 예매완료/관람완료를 watched_at으로 계산하는 것과 같은 방식이다.
+// 덕분에 "만료 처리 크론"이 필요 없다: 시각이 지나면 그 순간부터 만료로 보인다.
 export type Coupon = {
   id: string;
   benefit: string;
   discountRate: number;
-  status: CouponStatus;
+  isUsed: boolean;
+  expiresAt: Date;
   issuedAtStampOrder: number | null;
 };
 
@@ -24,7 +29,8 @@ type CouponRow = {
   id: string;
   benefit: string;
   discount_rate: number;
-  status: CouponStatus;
+  status: '사용가능' | '사용완료'; // DB엔 이 둘만 저장된다
+  expires_at: string;
   issued_at_stamp_order: number | null;
 };
 
@@ -33,16 +39,31 @@ function mapRow(row: CouponRow): Coupon {
     id: row.id,
     benefit: row.benefit,
     discountRate: row.discount_rate,
-    status: row.status,
+    isUsed: row.status === '사용완료',
+    expiresAt: new Date(row.expires_at),
     issuedAtStampOrder: row.issued_at_stamp_order,
   };
+}
+
+// 화면에 보여줄 상태를 계산한다. 이미 쓴 쿠폰은 기간이 지나도 '사용완료'로 남는다
+// (쓴 사실이 만료보다 먼저다 — 영수증에 남는 건 사용 이력이다).
+export function couponStatus(coupon: Coupon, now: Date = new Date()): CouponStatus {
+  if (coupon.isUsed) {
+    return '사용완료';
+  }
+  return coupon.expiresAt.getTime() <= now.getTime() ? '만료' : '사용가능';
+}
+
+// 지금 예매에 쓸 수 있는 쿠폰인가 (안 썼고 기간도 안 지났는가)
+export function isCouponUsable(coupon: Coupon, now: Date = new Date()): boolean {
+  return couponStatus(coupon, now) === '사용가능';
 }
 
 // 내 쿠폰 전체를 불러온다. RLS가 본인 것만 돌려준다.
 export async function fetchCoupons(): Promise<Coupon[]> {
   const { data, error } = await supabase
     .from('coupons')
-    .select('id, benefit, discount_rate, status, issued_at_stamp_order')
+    .select('id, benefit, discount_rate, status, expires_at, issued_at_stamp_order')
     .order('issued_at', { ascending: true });
   if (error) {
     throw error;
