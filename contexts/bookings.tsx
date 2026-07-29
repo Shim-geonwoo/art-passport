@@ -16,6 +16,7 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, 
 
 import { LoadError } from '@/components/load-error';
 import { useAuth } from '@/contexts/auth';
+import { useEvents } from '@/contexts/events';
 import { BookingRow, cancelBooking, fetchBookings } from '@/data/bookings';
 import { Coupon, fetchCoupons, issueDueCoupons } from '@/data/coupons';
 
@@ -34,6 +35,10 @@ const BookingsContext = createContext<BookingsValue | undefined>(undefined);
 
 export function BookingsProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
+  // 예매가 바뀌면 회차의 잔여석(sold_count)도 바뀐다. 그 값은 카탈로그(events)에 실려 오므로
+  // 여기서 함께 다시 받아온다 — 안 그러면 방금 매진시킨 회차가 계속 "2석"으로 보인다.
+  // (app/_layout.tsx에서 EventsProvider가 이 Provider 바깥에 있어서 쓸 수 있다)
+  const { refresh: refreshEvents } = useEvents();
   const [bookings, setBookings] = useState<BookingRow[]>([]);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -61,6 +66,10 @@ export function BookingsProvider({ children }: { children: ReactNode }) {
       setCoupons(couponRows);
       setError(null);
       setHasLoaded(true);
+      // 잔여석을 최신으로 맞춘다. 예매/취소 직후는 물론, 로그인 시점에도 다른 기기에서 산 만큼이
+      // 반영된다. 실패해도 EventsProvider가 알아서 처리하므로 여기서 예매 조회까지 실패로
+      // 취급하지 않도록 마지막에 부른다.
+      await refreshEvents();
     } catch {
       // 조회 실패(네트워크 끊김 등). 예전엔 여기서 그냥 터져서 "예매 0건"처럼 보였는데,
       // 이제는 실패했다고 표시하고 이미 받아둔 목록은 그대로 둔다(화면이 갑자기 비지 않게).
@@ -68,7 +77,7 @@ export function BookingsProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [user]);
+  }, [user, refreshEvents]);
 
   // 로그인/로그아웃(=user가 바뀔 때)마다 다시 불러온다
   useEffect(() => {

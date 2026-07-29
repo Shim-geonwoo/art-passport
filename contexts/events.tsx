@@ -3,7 +3,16 @@
 // Supabase에서 한 번만 불러와서 예매 목록/상세/결제 화면이 나눠 쓴다.
 // (매 화면마다 따로 불러오면 화면 전환할 때마다 다시 로딩하는 게 보여서 굳이 그렇게 안 한다)
 
-import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import {
+  createContext,
+  ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import { EventItem, fetchEvents } from '@/data/events';
 
@@ -23,13 +32,22 @@ export function EventsProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // 한 번이라도 목록을 받아온 적이 있는가. state가 아니라 ref인 이유는 이 값이 화면을
+  // 다시 그리게 할 필요가 없고, refresh 안에서 최신 값을 바로 읽어야 하기 때문이다.
+  const hasLoadedRef = useRef(false);
+
   // 이 Provider는 앱이 켜져 있는 동안 계속 살아 있어서(app/_layout.tsx 최상단), 화면이 사라진 뒤
   // 응답이 도착하는 상황을 따로 막아줄 필요가 없다.
   const refresh = useCallback(async () => {
-    setIsLoading(true);
+    // "불러오는 중"은 처음 한 번만 띄운다. 이미 목록이 있으면 조용히 새로 받는다 —
+    // 예매 직후 잔여석을 갱신할 때 목록이 로딩 화면으로 깜빡이면 안 되기 때문이다.
+    if (!hasLoadedRef.current) {
+      setIsLoading(true);
+    }
     try {
       setEvents(await fetchEvents());
       setError(null);
+      hasLoadedRef.current = true;
     } catch {
       // 실패해도 이미 받아둔 목록은 지우지 않는다 (쓰던 중에 화면이 갑자기 비지 않게)
       setError(LOAD_ERROR_MESSAGE);
