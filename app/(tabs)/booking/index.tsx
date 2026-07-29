@@ -7,7 +7,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Link } from 'expo-router';
 import { useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GenreBadge } from '@/components/genre-badge';
@@ -28,32 +28,76 @@ export default function BookingListScreen() {
 
   // 처음 화면을 열었을 때는 첫 번째 카테고리(전시)만 필터링된 상태로 보여준다
   const [selectedGenre, setSelectedGenre] = useState<Genre>(GENRES[0]);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const now = useNow();
   const { events, isLoading, error, refresh } = useEvents();
 
-  // 선택한 카테고리 중, 아직 예매 가능한(지나거나 종료되지 않은) 이벤트만 보여준다.
-  const filteredEvents = events.filter(
-    (event) => event.genre === selectedGenre && isBookable(event, now)
-  );
+  // 검색 중에는 카테고리를 무시하고 전체에서 찾는다.
+  // "레베카"를 찾으려고 뮤지컬 탭을 먼저 골라야 한다면 검색을 쓰는 의미가 없기 때문이다.
+  const query = searchQuery.trim().toLowerCase();
+  const isSearching = query.length > 0;
+
+  // 어느 쪽이든 "아직 예매 가능한 것"만 보여준다(지났거나 매진된 건 제외)
+  const filteredEvents = events.filter((event) => {
+    if (!isBookable(event, now)) {
+      return false;
+    }
+    if (isSearching) {
+      // 제목과 장소로 찾는다 — 공연장 이름만 기억나는 경우도 흔하다
+      return (
+        event.title.toLowerCase().includes(query) ||
+        event.venueName.toLowerCase().includes(query)
+      );
+    }
+    return event.genre === selectedGenre;
+  });
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top']}>
-      {/* 상단 카테고리 탭 */}
-      {/* 5개 탭이 항상 화면 폭 안에 들어오게 그냥 한 줄(View)로 놓는다.
-          예전엔 가로 ScrollView였는데, 탭이 폭을 아주 조금 넘겨서 미세하게 스크롤되는 게
-          오히려 불편했다. 좁은 화면에서도 안 넘치도록 각 탭은 flexShrink로 줄어들 수 있게 해뒀다. */}
-      <View style={styles.tabRow}>
-        {GENRES.map((genre) => (
-          <CategoryTab
-            key={genre}
-            genre={genre}
-            selected={genre === selectedGenre}
-            theme={theme}
-            onPress={() => setSelectedGenre(genre)}
-          />
-        ))}
+      {/* 검색창. 카탈로그가 50건이라 카테고리만으로는 찾기 어려워서 상시 노출한다
+          (보딩패스 탭은 티켓이 몇 장뿐이라 아이콘을 눌러야 열리는 방식이지만, 여긴 목록이 크다) */}
+      <View style={[styles.searchBar, { borderColor: theme.dashedBorder }]}>
+        <Ionicons name="search-outline" size={18} color={theme.textSecondary} />
+        <TextInput
+          style={[styles.searchInput, { color: theme.text }]}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="공연·전시나 장소 검색"
+          placeholderTextColor={theme.textSecondary}
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="search"
+        />
+        {isSearching ? (
+          <Pressable onPress={() => setSearchQuery('')} hitSlop={8}>
+            <Ionicons name="close-circle" size={18} color={theme.textSecondary} />
+          </Pressable>
+        ) : null}
       </View>
+
+      {/* 상단 카테고리 탭. 검색 중에는 감춘다 — 전체에서 찾고 있는데 특정 탭이 선택된 것처럼
+          보이면 "이 카테고리 안에서만 찾는 중"으로 오해하게 된다. */}
+      {isSearching ? (
+        <Text style={[styles.searchSummary, { color: theme.textSecondary }]}>
+          전체에서 검색 · {filteredEvents.length}건
+        </Text>
+      ) : (
+        /* 5개 탭이 항상 화면 폭 안에 들어오게 그냥 한 줄(View)로 놓는다.
+           예전엔 가로 ScrollView였는데, 탭이 폭을 아주 조금 넘겨서 미세하게 스크롤되는 게
+           오히려 불편했다. 좁은 화면에서도 안 넘치도록 각 탭은 flexShrink로 줄어들 수 있게 해뒀다. */
+        <View style={styles.tabRow}>
+          {GENRES.map((genre) => (
+            <CategoryTab
+              key={genre}
+              genre={genre}
+              selected={genre === selectedGenre}
+              theme={theme}
+              onPress={() => setSelectedGenre(genre)}
+            />
+          ))}
+        </View>
+      )}
 
       {/* 선택된 카테고리의 공연 목록 (세로 스크롤) */}
       {/* 카탈로그를 못 불러왔고 보여줄 목록도 없으면, 목록 자리에 안내 + 다시 시도를 놓는다.
@@ -65,6 +109,13 @@ export default function BookingListScreen() {
         <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
           {isLoading ? (
             <Text style={[styles.statusText, { color: theme.textSecondary }]}>불러오는 중...</Text>
+          ) : filteredEvents.length === 0 ? (
+            // 검색 결과가 없는 것과 그 카테고리가 비어 있는 것은 다른 상황이라 문구를 나눈다
+            <Text style={[styles.statusText, { color: theme.textSecondary }]}>
+              {isSearching
+                ? `'${searchQuery.trim()}'과 맞는 공연·전시가 없어요.`
+                : '예매할 수 있는 공연이 없어요.'}
+            </Text>
           ) : (
             filteredEvents.map((event, index) => (
               <EventCard
@@ -162,6 +213,31 @@ const styles = StyleSheet.create({
   },
 
   // 상단 카테고리 탭
+  // 검색창 (카테고리 탭 위에 상시 노출)
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8, // sm
+    marginHorizontal: 16,
+    marginTop: 12,
+    borderWidth: 1,
+    borderRadius: 10, // TextField와 같은 값
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  searchInput: {
+    flex: 1,
+    fontFamily: Fonts.regular,
+    fontSize: 14,
+    padding: 0, // 안드로이드 TextInput의 기본 여백을 없애 아이콘과 높이를 맞춘다
+  },
+  // 검색 중일 때 카테고리 탭 자리에 들어가는 요약 줄
+  searchSummary: {
+    fontFamily: Fonts.regular,
+    fontSize: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 16, // 탭 줄과 같은 높이라 목록이 아래위로 튀지 않는다
+  },
   tabRow: {
     flexDirection: 'row',
     alignItems: 'flex-start', // 탭이 세로로 stretch돼서 길쭉한 막대가 되는 걸 막는다
