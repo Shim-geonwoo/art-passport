@@ -5,7 +5,7 @@
 
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Theme, ThemeColors } from '@/constants/colors';
@@ -40,7 +40,11 @@ export default function MyPageHomeScreen() {
         {/* 프로필 (누르면 프로필 편집으로) */}
         <Pressable style={styles.profile} onPress={() => router.push('/mypage/profile')}>
           <View style={[styles.avatar, { backgroundColor: theme.emptyCellBackground }]}>
-            <Ionicons name="person-outline" size={28} color={theme.textSecondary} />
+            {profile?.profileImage ? (
+              <Image source={{ uri: profile.profileImage }} style={styles.avatarImage} />
+            ) : (
+              <Ionicons name="person-outline" size={28} color={theme.textSecondary} />
+            )}
           </View>
           <View style={styles.profileText}>
             <Text style={[styles.nickname, { color: theme.text }]}>{nickname}</Text>
@@ -123,6 +127,11 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden', // 사진이 원 밖으로 삐져나오지 않게
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
   },
   profileText: {
     flex: 1, // 남는 가로 공간을 차지해 오른쪽 화살표를 끝으로 민다

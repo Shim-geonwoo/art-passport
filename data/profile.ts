@@ -34,3 +34,70 @@ export async function updateNickname(userId: string, nickname: string): Promise<
     throw error;
   }
 }
+
+// ── 프로필 이미지 (Supabase Storage) ──────────────────────
+
+const AVATAR_BUCKET = 'avatars';
+
+// base64 글자를 실제 바이트로 바꾼다.
+// 사진을 고르면 base64 문자열로 받는데, Storage에는 바이트로 올려야 해서 한 번 변환한다.
+// (라이브러리를 더 넣지 않으려고 직접 쓴다 — atob은 React Native와 브라우저 모두에 있다)
+function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+// 고른 사진을 올리고, 그 주소를 users.profile_image에 저장한 뒤 최종 주소를 돌려준다.
+//
+// 경로는 회원마다 하나로 고정한다({user_id}/avatar.jpg). 바꿀 때마다 새 파일을 만들면
+// 예전 사진이 계속 쌓이기 때문에, 같은 자리에 덮어쓴다(upsert).
+// 대신 주소가 늘 같아서 캐시에 남은 옛 사진이 보일 수 있어, 주소 끝에 시각(?v=...)을 붙인다.
+export async function uploadAvatar(
+  userId: string,
+  base64: string,
+  contentType: string
+): Promise<string> {
+  const path = `${userId}/avatar.jpg`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(AVATAR_BUCKET)
+    .upload(path, base64ToBytes(base64), { contentType, upsert: true });
+  if (uploadError) {
+    throw uploadError;
+  }
+
+  const { data } = supabase.storage.from(AVATAR_BUCKET).getPublicUrl(path);
+  const publicUrl = `${data.publicUrl}?v=${Date.now()}`;
+
+  const { error: updateError } = await supabase
+    .from('users')
+    .update({ profile_image: publicUrl })
+    .eq('id', userId);
+  if (updateError) {
+    throw updateError;
+  }
+
+  return publicUrl;
+}
+
+// 프로필 사진을 지운다. 파일과 users.profile_image를 함께 비운다.
+export async function removeAvatar(userId: string): Promise<void> {
+  const { error: removeError } = await supabase.storage
+    .from(AVATAR_BUCKET)
+    .remove([`${userId}/avatar.jpg`]);
+  if (removeError) {
+    throw removeError;
+  }
+
+  const { error: updateError } = await supabase
+    .from('users')
+    .update({ profile_image: null })
+    .eq('id', userId);
+  if (updateError) {
+    throw updateError;
+  }
+}

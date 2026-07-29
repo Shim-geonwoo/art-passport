@@ -40,7 +40,7 @@
 |---|---|---|
 | id | uuid (PK, FK → auth.users.id) | 회원 고유번호 (Supabase Auth가 관리) |
 | nickname | text | 닉네임 |
-| profile_image | text | 프로필 사진 URL |
+| profile_image | text, null 허용 | 프로필 사진 URL (Storage `avatars` 버킷의 공개 주소). 없으면 화면에서 사람 아이콘으로 대체 |
 | created_at | timestamp | 가입일 |
 
 ### events (공연·전시)
@@ -235,6 +235,23 @@
 >
 > **스탬프는 줄어들지 않는다**: `cancel_booking`은 관람 전 예매만 취소하고, 스탬프는 관람 시각이
 > 지난 예매라서 둘은 겹치지 않는다. 즉 "쿠폰을 받은 뒤 예매를 취소해 스탬프만 되돌리는" 일은 불가능하다.
+
+---
+
+## 파일 저장소 (Supabase Storage)
+
+### avatars 버킷 — 프로필 사진
+- **경로 규칙**: `{user_id}/avatar.jpg` — 맨 앞 폴더가 회원 id다.
+  정책에서 `(storage.foldername(name))[1] = auth.uid()::text` 하나로 "본인 폴더인가"를 확인한다.
+- **공개 버킷**이다. 프로필 사진은 감출 정보가 아니고, 공개면 이미지 주소를 그대로 쓸 수 있어
+  화면에서 서명된 URL을 매번 발급받지 않아도 된다.
+- **읽기는 누구나, 쓰기·삭제는 본인 폴더만.**
+- 회원당 파일 하나를 덮어쓴다(upsert). 바꿀 때마다 새 파일을 만들면 예전 사진이 계속 쌓인다.
+  대신 주소가 늘 같아 캐시에 옛 사진이 남을 수 있어서, `users.profile_image`에 저장하는 주소
+  끝에 `?v={시각}`을 붙인다.
+
+> 나중에 관리자 모드에서 포스터(`events.poster_url`)를 올릴 때도 같은 방식을 쓰면 된다 —
+> 버킷만 따로 만들고 정책은 "관리자만 쓰기"로 바꾸면 구조는 그대로다.
 
 ---
 
