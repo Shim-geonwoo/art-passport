@@ -18,6 +18,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CategoryColors, CategoryIcons, CategoryLabels, Colors, Genre, Theme } from '@/constants/colors';
@@ -86,6 +87,11 @@ const SEAT_INFO = '자유석';
 
 // 프로필을 아직 못 불러왔을 때 쓸 이름. 회원가입 트리거가 넣는 기본 닉네임과 같은 값이다.
 const FALLBACK_PASSENGER_NAME = '사용자';
+
+// QR 자리 크기 (피그마 실측 100x100). QR은 사방에 여백이 있어야 스캐너가 인식하므로,
+// 흰 판을 100으로 두고 그 안에 코드를 조금 작게 그린다.
+const QR_SIZE = 100;
+const QR_PADDING = 6;
 
 // 예매 한 건 = 보딩패스 카드 한 장
 type Booking = {
@@ -505,17 +511,27 @@ function BoardingPassCard({ booking }: { booking: Booking }) {
         </Text>
       </View>
 
-      {/* 하단 (270 x 168): CONTENT 라벨/값 + QR 자리(회색 네모, 100x100) */}
+      {/* 하단 (270 x 168): CONTENT 라벨/값 + QR (100x100) */}
       <View style={styles.bottomSection}>
         <View style={styles.contentBox}>
           <Text style={styles.contentLabel}>CONTENT</Text>
-          {/* 콘텐츠명이 길어서 두 줄로 넘어가도 아래 회색 QR 자리를 안 가리도록,
+          {/* 콘텐츠명이 길어서 두 줄로 넘어가도 아래 QR을 안 가리도록,
               라벨/값을 원래 좌표(top 0 / top 12)보다 한 줄(12px) 위로 올려뒀다 */}
           <Text style={styles.contentValue} numberOfLines={2}>
             {booking.eventTitle}
           </Text>
-          {/* 실제 QR코드는 아직 없어서 회색 네모로 자리만 표시해둔다 (나중에 QR 이미지로 교체) */}
-          <View style={styles.qrPlaceholder} />
+          {/* 예매번호(booking.id)를 담은 QR. 흰 바탕에 네이비로 그려서 어떤 카테고리 색 위에서도 읽힌다.
+              예매 상세의 "예매번호"와 같은 값이다(거기선 보기 좋으라고 대문자로 표시할 뿐).
+              실제 공연장에서 쓰려면 위조 방지 서명이 필요하지만, 이 앱은 테스트 결제 전용이라
+              번호만 담는다. */}
+          <View style={styles.qrBox}>
+            <QRCode
+              value={booking.id}
+              size={QR_SIZE - QR_PADDING * 2}
+              color={Colors.navy}
+              backgroundColor={Colors.textOnColor}
+            />
+          </View>
         </View>
       </View>
     </View>
@@ -735,14 +751,17 @@ const styles = StyleSheet.create({
     color: CARD_VALUE_COLOR,
     letterSpacing: 0.24,
   },
-  // QR코드가 나중에 들어갈 자리. 지금은 회색 네모로만 표시해둔다
-  qrPlaceholder: {
+  // QR이 들어가는 흰 판. 피그마 실측 자리(left 0, top 36, 100x100)를 그대로 쓴다.
+  // QR 자체는 여백(quiet zone)이 있어야 인식되므로, 흰 판 안쪽에 조금 작게 그린다.
+  qrBox: {
     position: 'absolute',
     left: 0,
     top: 36,
-    width: 100,
-    height: 100,
-    backgroundColor: '#CCCCCC',
+    width: QR_SIZE,
+    height: QR_SIZE,
     borderRadius: 10,
+    backgroundColor: Colors.textOnColor,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

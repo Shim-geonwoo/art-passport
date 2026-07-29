@@ -38,7 +38,12 @@
 - **레이아웃**: 세로 3영역, 전부 `position: absolute` 좌표 (design-system.md 8번 표 그대로)
   - 상단 270x42 — 카테고리명(CardHeader) + D-day 배지(임박할 때만) + 카테고리 아이콘
   - 중간 270x170 — HOME/SEOUL + 비행기 아이콘 + PASSENGER/DATE/TIME/SEAT/CAP
-  - 하단 270x168 — CONTENT 라벨/값 + QR 자리(100x100 회색 박스, 실제 QR 붙기 전 임시)
+  - 하단 270x168 — CONTENT 라벨/값 + QR(100x100)
+    - QR은 예매번호(`booking.id`)를 담고, 흰 판 위에 네이비로 그린다.
+      카테고리 색 5종 어디 위에 놓여도 읽히게 하려는 것. 판 안쪽으로 6px 여백을 둬야
+      스캐너가 인식한다(quiet zone).
+    - `components/boarding-pass-card.tsx`(피그마 대조용 정적 목업)는 이 자리를 회색 박스로
+      그대로 둔다 — 시안과 비교하는 용도라 실제 데이터를 넣지 않는다.
 - **타이포**: `design-system.md` 3-1 표(CardHeader/CardBigValue/CardLabel/CardValue) 그대로
 - **색**: `on-color-value`(흰) / `on-color-label`(#2C2C2C) / `on-color-icon`(검정)
 - **상태**: 카드 자체의 변형은 D-day 배지 유무 하나뿐이다.
