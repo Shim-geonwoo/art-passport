@@ -19,7 +19,7 @@ const MIN_PASSWORD_LENGTH = 6; // Supabase Auth 기본 최소 길이
 export default function SignupScreen() {
   const colorScheme = useColorScheme();
   const theme: ThemeColors = colorScheme === 'dark' ? Theme.dark : Theme.light;
-  const { signUp } = useAuth();
+  const { signUp, resendConfirmation } = useAuth();
 
   const [nickname, setNickname] = useState('');
   const [email, setEmail] = useState('');
@@ -28,6 +28,20 @@ export default function SignupScreen() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null); // 이메일 확인 안내(성공했지만 아직 로그인 전)
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isResending, setIsResending] = useState(false);
+
+  // 가입 확인 메일 다시 보내기. 가입 직후(notice가 떠 있을 때)만 쓰인다.
+  async function handleResend() {
+    setIsResending(true);
+    const { error: resendError } = await resendConfirmation(email.trim());
+    setIsResending(false);
+    if (resendError) {
+      setError(`메일을 다시 보내지 못했어요. (${resendError})`);
+      return;
+    }
+    setError(null);
+    setNotice('확인 메일을 다시 보냈어요. 메일함을 확인해주세요.');
+  }
 
   async function handleSignup() {
     if (!nickname.trim() || !email.trim() || !password || !confirmPassword) {
@@ -111,6 +125,16 @@ export default function SignupScreen() {
           {error ? <Text style={[styles.error, { color: theme.textSecondary }]}>{error}</Text> : null}
           {notice ? <Text style={[styles.notice, { color: theme.text }]}>{notice}</Text> : null}
 
+          {/* 확인 메일이 안 왔거나 링크가 만료됐을 때를 위해 다시 보낼 수 있게 한다.
+              (가입은 됐는데 메일을 못 받으면 그 계정으로는 더 나아갈 방법이 없다) */}
+          {notice ? (
+            <Pressable onPress={handleResend} disabled={isResending} hitSlop={8}>
+              <Text style={[styles.resendText, { color: theme.textSecondary }]}>
+                {isResending ? '보내는 중...' : '메일이 안 왔나요? 다시 보내기'}
+              </Text>
+            </Pressable>
+          ) : null}
+
           <Pressable
             style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
             onPress={handleSignup}
@@ -180,6 +204,11 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.medium,
     fontSize: 16,
     color: Colors.textOnColor,
+  },
+  resendText: {
+    fontFamily: Fonts.medium,
+    fontSize: 12,
+    textDecorationLine: 'underline',
   },
   linkText: {
     fontFamily: Fonts.regular,

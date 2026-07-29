@@ -198,6 +198,11 @@
 | `create_booking(event_id, quantity, coupon_id, schedule_id, visit_date)` | 예매 1건 생성 + 쿠폰 '사용완료' 처리 (한 트랜잭션) | 로그인 여부, 인원 1~4, 고른 회차가 그 공연 것인지 / 고른 날짜가 전시 기간 안인지, 관람 시각이 안 지났는지, 쿠폰 본인 소유 + '사용가능' |
 | `cancel_booking(booking_id)` | `is_cancelled` 켜기 + 쓴 쿠폰 '사용가능'으로 반환 | 본인 소유, 미취소, **관람 전(`watched_at > now()`)** |
 | `issue_due_coupons()` | 스탬프 9개마다 쿠폰 발급 | 본인 스탬프 수를 서버가 다시 셈 |
+| `delete_own_account()` | 회원 탈퇴 — `auth.users` 삭제 (프로필·예매·쿠폰이 연쇄 삭제) | 인자를 받지 않고 `auth.uid()`로만 지우므로 남의 계정을 지목할 수 없다 |
+
+> 계정(`auth.users`)은 Supabase Auth가 관리하는 표라서 앱의 anon 키로는 지울 수 없다.
+> service_role 키는 앱에 절대 넣지 않으므로(그 키 하나면 전 회원의 데이터를 다룰 수 있다),
+> "본인 것만"이 박힌 함수를 서버에 두고 앱은 그것만 부른다.
 
 > **왜 이렇게까지 하나**: 상태를 저장하지 않고 파생하는 설계(`watched_at` vs `now()`)라서,
 > `watched_at`을 클라이언트가 정할 수 있으면 과거 시각을 적어 스탬프를 즉시 만들어낼 수 있다.

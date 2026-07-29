@@ -24,6 +24,18 @@ type AuthValue = {
     nickname: string
   ) => Promise<{ error: string | null; needsEmailConfirmation: boolean }>;
   signOut: () => Promise<void>;
+  // 가입 확인 메일을 다시 보낸다 (메일이 안 왔거나 링크가 만료됐을 때)
+  resendConfirmation: (email: string) => Promise<{ error: string | null }>;
+  // 비밀번호 재설정 1단계: 메일로 6자리 코드를 보낸다
+  sendPasswordResetCode: (email: string) => Promise<{ error: string | null }>;
+  // 비밀번호 재설정 2단계: 코드를 확인하고 새 비밀번호로 바꾼다 (성공하면 그대로 로그인된다)
+  confirmPasswordReset: (
+    email: string,
+    code: string,
+    newPassword: string
+  ) => Promise<{ error: string | null }>;
+  // 회원 탈퇴. 계정과 예매·쿠폰이 함께 지워지고 되돌릴 수 없다.
+  deleteAccount: () => Promise<{ error: string | null }>;
   refreshProfile: () => Promise<void>; // 프로필을 다시 불러온다 (닉네임 수정 직후 등)
 };
 
@@ -104,6 +116,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       async signOut() {
         await supabase.auth.signOut();
+      },
+
+      async resendConfirmation(email) {
+        const { error } = await supabase.auth.resend({ type: 'signup', email });
+        return { error: error?.message ?? null };
+      },
+
+      async sendPasswordResetCode(email) {
+        // 이 호출로 Supabase가 '비밀번호 재설정' 메일을 보낸다.
+        // 메일 템플릿에 {{ .Token }}이 들어 있어야 6자리 코드가 함께 온다(대시보드 설정).
+        const { error } = await supabase.auth.resetPasswordForEmail(email);
+        return { error: error?.message ?? null };
+      },
+
+      async confirmPasswordReset(email, code, newPassword) {
+        // 1) 코드 확인. 통과하면 Supabase가 세션을 만들어준다 — 이 순간 로그인 상태가 되고,
+        //    app/_layout.tsx의 가드가 화면을 (tabs)로 넘긴다(재설정 화면은 사라진다).
+        const { error: verifyError } = await supabase.auth.verifyOtp({
+          email,
+          token: code,
+          type: 'recovery',
+        });
+        if (verifyError) {
+          return { error: verifyError.message };
+        }
+
+        // 2) 그 세션으로 비밀번호를 바꾼다. 화면이 이미 사라졌더라도 supabase 클라이언트는
+        //    앱 전체가 공유하는 하나라서 이 요청은 그대로 끝까지 간다.
+        //    (그래서 새 비밀번호 형식 검사는 1)보다 먼저, 화면에서 끝내둔다)
+        const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+        if (updateError) {
+          return { error: updateError.message };
+        }
+        return { error: null };
+      },
+
+      async deleteAccount() {
+        // 계정 삭제는 서버 함수가 한다 (본인 것만 지우도록 auth.uid()로 잠겨 있다)
+        const { error } = await supabase.rpc('delete_own_account');
+        if (error) {
+          return { error: error.message };
+        }
+        // 계정이 없어졌으니 기기에 남은 세션도 정리한다.
+        // 이때 onAuthStateChange가 세션을 null로 바꾸고, app/_layout.tsx의 가드가
+        // 자동으로 로그인 화면으로 되돌린다.
+        await supabase.auth.signOut();
+        return { error: null };
       },
 
       refreshProfile,

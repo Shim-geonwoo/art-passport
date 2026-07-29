@@ -29,12 +29,16 @@ function describeSignInError(message: string): string {
 export default function LoginScreen() {
   const colorScheme = useColorScheme();
   const theme: ThemeColors = colorScheme === 'dark' ? Theme.dark : Theme.light;
-  const { signIn } = useAuth();
+  const { signIn, resendConfirmation } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isResending, setIsResending] = useState(false);
+  // 이메일 인증이 안 돼서 로그인이 막힌 경우에만 "인증 메일 다시 보내기"를 띄운다
+  const [needsConfirmation, setNeedsConfirmation] = useState(false);
 
   async function handleLogin() {
     if (!email.trim() || !password) {
@@ -42,12 +46,28 @@ export default function LoginScreen() {
       return;
     }
     setError(null);
+    setNotice(null);
+    setNeedsConfirmation(false);
     setIsSubmitting(true);
     const { error: signInError } = await signIn(email.trim(), password);
     setIsSubmitting(false);
     if (signInError) {
       setError(describeSignInError(signInError));
+      setNeedsConfirmation(signInError.includes('Email not confirmed'));
     }
+  }
+
+  // 인증 메일 다시 보내기. 메일을 못 받으면 그 계정으로는 로그인할 방법이 없어서 필요하다.
+  async function handleResend() {
+    setIsResending(true);
+    const { error: resendError } = await resendConfirmation(email.trim());
+    setIsResending(false);
+    if (resendError) {
+      setError(`메일을 다시 보내지 못했어요. (${resendError})`);
+      return;
+    }
+    setError(null);
+    setNotice('인증 메일을 다시 보냈어요. 메일함을 확인해주세요.');
   }
 
   return (
@@ -81,6 +101,15 @@ export default function LoginScreen() {
           />
 
           {error ? <Text style={[styles.error, { color: theme.textSecondary }]}>{error}</Text> : null}
+          {notice ? <Text style={[styles.error, { color: theme.text }]}>{notice}</Text> : null}
+
+          {needsConfirmation ? (
+            <Pressable onPress={handleResend} disabled={isResending} hitSlop={8}>
+              <Text style={[styles.resendText, { color: theme.textSecondary }]}>
+                {isResending ? '보내는 중...' : '인증 메일 다시 보내기'}
+              </Text>
+            </Pressable>
+          ) : null}
 
           <Pressable
             style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
@@ -88,6 +117,15 @@ export default function LoginScreen() {
             disabled={isSubmitting}>
             <Text style={styles.submitButtonText}>{isSubmitting ? '로그인 중...' : '로그인'}</Text>
           </Pressable>
+
+          {/* 비밀번호를 잊으면 그 계정으로 들어갈 방법이 없어지므로, 로그인 바로 아래에 둔다 */}
+          <Link href="/(auth)/reset-password" asChild>
+            <Pressable hitSlop={8}>
+              <Text style={[styles.forgotText, { color: theme.textSecondary }]}>
+                비밀번호를 잊으셨나요?
+              </Text>
+            </Pressable>
+          </Link>
         </View>
 
         <Link href="/(auth)/signup" asChild>
@@ -146,6 +184,17 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.medium,
     fontSize: 16,
     color: Colors.textOnColor,
+  },
+  resendText: {
+    fontFamily: Fonts.medium,
+    fontSize: 12,
+    textDecorationLine: 'underline',
+  },
+  forgotText: {
+    fontFamily: Fonts.regular,
+    fontSize: 12,
+    textAlign: 'center',
+    paddingTop: 4,
   },
   linkText: {
     fontFamily: Fonts.regular,
