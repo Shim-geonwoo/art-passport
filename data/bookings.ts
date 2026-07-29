@@ -34,7 +34,8 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 export type DerivedBooking = {
   id: string;
   event: EventItem;
-  showAt: Date; // = watched_at
+  showAt: Date; // 관람 시각 (= watched_at)
+  bookedAt: Date; // 예매한 시각 (= created_at). 영수증처럼 "언제 샀는지"를 보여줄 때 쓴다
   status: BookingStatus;
   isBoardingPass: boolean; // 월렛(보딩패스)에 올라가는가 = 아직 관람 전인가
   isSoon: boolean; // 관람이 임박했는가 (오늘 포함 3일 이내). 강조 표시용
@@ -81,6 +82,7 @@ function deriveBooking(row: BookingRow, now: Date): DerivedBooking {
     id: row.id,
     event: mapEventRow(row.event),
     showAt,
+    bookedAt: new Date(row.created_at),
     status,
     isBoardingPass,
     isSoon,

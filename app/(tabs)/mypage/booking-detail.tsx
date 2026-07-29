@@ -117,6 +117,10 @@ export default function BookingDetailScreen() {
         <View style={[styles.card, { backgroundColor: theme.emptyCellBackground }]}>
           <InfoRow label="예매번호" value={booking.id.toUpperCase()} theme={theme} />
           <Divider theme={theme} />
+          {/* 언제 샀는지. 관람일시와 달리 항상 분 단위까지 보여준다 — 영수증처럼 "그때 그 결제"를
+              가리키는 값이라, 같은 날 두 번 예매했으면 시각으로 구분돼야 하기 때문이다. */}
+          <InfoRow label="예매일시" value={formatDateTime(booking.bookedAt)} theme={theme} />
+          <Divider theme={theme} />
           <InfoRow label="관람일시" value={whenText} theme={theme} />
           <Divider theme={theme} />
           <InfoRow label="장소" value={booking.event.venueName} theme={theme} />
