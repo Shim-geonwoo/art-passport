@@ -55,7 +55,14 @@
   > 디자인 시스템에 없는 새 색을 들이지 않고 카드와 한 몸으로 보인다.
   > 판정은 `data/bookings.ts`의 `isSoon`(월렛 노출 여부인 `isBoardingPass`와 별개 값).
 - **데이터 바인딩 시 주의**
-  - `venueName`이 길면 `adjustsFontSizeToFit` + `numberOfLines={1}`로 줄인다(코드에 이미 반영).
+  - `venueName`은 **글씨 크기를 줄이지 않는다.** 맞은편 `자택`과 같은 10px Bold로 고정하고,
+    오른쪽 정렬(`right: 13`, `maxWidth: 105`)로 이름이 길면 왼쪽으로 늘어나게 한다.
+    그래도 넘치면 `numberOfLines={1}` 말줄임.
+    > 예전엔 `adjustsFontSizeToFit` + `minimumFontScale={0.5}`로 줄였는데, 상자 폭이 47px이라
+    > 장소 이름 길이에 따라 카드마다 5~10px로 제각각이 됐다(맞은편 `자택`은 항상 10px이라
+    > 좌우도 안 맞았다). 게다가 가장 긴 이름은 5px까지 줄여도 결국 잘려서, 줄이는 목적도
+    > 달성하지 못했다. 여권 스탬프 카드(`stampVenue`)가 같은 데이터를 이미
+    > "크기 고정 + 오른쪽 정렬 + 말줄임"으로 그리고 있어 그쪽에 맞췄다.
   - `eventTitle`(CONTENT 값)이 2줄이 되면 라벨/값을 원래 좌표보다 12px 위로 올려서
     QR 자리와 안 겹치게 한다(코드에 이미 반영, `contentLabel`/`contentValue` top 참고).
 - **의도적 예외**: 비행기 아이콘은 outline이 아니라 filled(`airplane`) —

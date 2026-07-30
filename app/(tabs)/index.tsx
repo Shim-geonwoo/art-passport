@@ -501,13 +501,11 @@ function BoardingPassCard({ booking }: { booking: Booking }) {
         <Text style={[styles.smallLabel, styles.posDepartureLabel]}>{DEPARTURE_LABEL}</Text>
         <Text style={[styles.bigValue, styles.posDepartureValue]}>{DEPARTURE_VALUE}</Text>
 
-        {/* 오른쪽: 관람 장소(도착). 장소명 길이가 제각각이라 한 줄로 줄여 보여준다 */}
-        <Text
-          style={[styles.smallLabel, styles.posVenueLabel]}
-          numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.5}
-        >
+        {/* 오른쪽: 관람 장소(도착). 맞은편 '자택'과 같은 10px로 고정한다.
+            예전엔 adjustsFontSizeToFit으로 글자 수에 맞춰 줄였는데, 그러면 장소 이름 길이에 따라
+            카드마다 5~10px로 제각각이 됐다(맞은편 '자택'은 항상 10px이라 좌우도 안 맞았다).
+            이제는 크기를 고정하고, 이름이 길면 오른쪽 정렬이라 왼쪽으로 늘어난다. */}
+        <Text style={[styles.smallLabel, styles.posVenueLabel]} numberOfLines={1}>
           {booking.venueName}
         </Text>
         <Text style={[styles.bigValue, styles.posArrivalValue]}>{ARRIVAL_VALUE}</Text>
@@ -714,7 +712,14 @@ const styles = StyleSheet.create({
   },
   posDepartureLabel: { position: 'absolute', left: 13, top: 19 },
   posDepartureValue: { position: 'absolute', left: 13, top: 33 },
-  posVenueLabel: { position: 'absolute', left: 210, top: 19, width: 47 },
+  // 장소 이름은 오른쪽 끝을 기준으로 붙인다. 아래 ARRIVAL 값(SEOUL)도 오른쪽 끝이 257px이라
+  // (left 182 + 24px 글씨 폭) 둘이 한 쌍으로 오른쪽 정렬된다 —
+  // 왼쪽에서 '자택'/'HOME'이 둘 다 left 13으로 왼쪽 정렬된 것의 거울이다.
+  //
+  // maxWidth 105: 카탈로그에서 가장 긴 장소 이름('예술의전당 CJ토월극장')이 10px에서 약 104px다.
+  // 오른쪽 끝 257에서 105px이면 시작점이 x=153 — 비행기 아이콘 칸(left 116, 폭 37)이 끝나는
+  // 지점이라 겹치지 않는다. 이보다 긴 이름이 들어오면 말줄임(…)으로 잘린다.
+  posVenueLabel: { position: 'absolute', right: 13, top: 19, maxWidth: 105, textAlign: 'right' },
   posArrivalValue: { position: 'absolute', left: 182, top: 31 },
   posPlaneIconSlot: {
     position: 'absolute',
