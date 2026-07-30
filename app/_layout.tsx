@@ -90,7 +90,15 @@ function RootLayoutNav() {
           <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         </Stack.Protected>
       </Stack>
-      <StatusBar style="auto" />
+      {/* 상태바(시계·배터리) 글씨색을 앱 배경에 맞춘다.
+          style="dark" = 어두운 글씨(밝은 배경용) / "light" = 밝은 글씨(어두운 배경용)
+
+          예전엔 style="auto"였는데, 이 'auto'는 앱 설정이 아니라 기기(OS)의 색 스킴을 본다.
+          그런데 앱 배경은 hooks/use-color-scheme.ts가 정하고, 그건 설정 화면에서 고른 테마를
+          우선한다 — 두 판단이 서로 다른 곳을 보고 있었다.
+          그래서 "기기는 다크인데 앱 테마는 라이트"일 때 흰 배경 위에 흰 글씨가 돼서
+          시계와 배터리가 보이지 않았다. 여기서는 앱이 실제로 그리는 색(colorScheme)을 그대로 쓴다. */}
+      <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
     </ThemeProvider>
   );
 }
