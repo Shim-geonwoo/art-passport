@@ -11,7 +11,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Colors, ThemeColors } from '@/constants/colors';
+import { ThemeColors } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
 
 type Props = {
@@ -28,7 +28,11 @@ export function RefreshErrorBanner({ message, onRetry, theme }: Props) {
         {message}
       </Text>
       <Pressable onPress={onRetry} hitSlop={8}>
-        <Text style={styles.retry}>다시 시도</Text>
+        {/* 글씨색을 테마에서 가져온다. 예전엔 navy로 고정돼 있었는데, 다크 모드에서는
+            배너 바탕(emptyCellBackground #242426) 위에 navy(#1B2A4A)가 얹혀서 거의 안 보였다 —
+            하필 "다시 시도"가 이 배너에서 유일하게 누를 수 있는 곳이다.
+            라이트 모드의 theme.text는 그대로 navy라 보이던 모습은 달라지지 않는다. */}
+        <Text style={[styles.retry, { color: theme.text }]}>다시 시도</Text>
       </Pressable>
     </View>
   );
@@ -53,7 +57,6 @@ const styles = StyleSheet.create({
   retry: {
     fontFamily: Fonts.medium,
     fontSize: 12,
-    color: Colors.navy,
-    textDecorationLine: 'underline',
+    textDecorationLine: 'underline', // color는 theme.text를 인라인으로 적용 (라이트/다크 대응)
   },
 });

@@ -6,10 +6,11 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackHeader } from '@/components/back-header';
+import { RefreshErrorBanner } from '@/components/refresh-error-banner';
 import { Colors, Theme, ThemeColors } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
 import { useBookings } from '@/contexts/bookings';
@@ -18,6 +19,7 @@ import { Coupon, couponStatus, CouponStatus } from '@/data/coupons';
 import { formatDate } from '@/data/schedule';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useNow } from '@/hooks/use-now';
+import { useRefreshing } from '@/hooks/use-refreshing';
 
 // 쿠폰 상태별 뱃지 색 (사용가능=골드, 사용완료/만료=회색)
 const COUPON_STATUS_COLOR: Record<CouponStatus, string> = {
@@ -37,7 +39,12 @@ export default function RewardsScreen() {
   const now = useNow();
   const [couponFilter, setCouponFilter] = useState<CouponFilter>('사용가능');
 
-  const { bookings, coupons: allCoupons } = useBookings();
+  const { bookings, coupons: allCoupons, error, refresh } = useBookings();
+
+  // 당겨서 새로고침. 이 화면에서 특히 중요한 이유는, 스탬프 9개를 채웠을 때의 쿠폰 발급
+  // (issue_due_coupons)이 바로 이 갱신 안에서 일어나기 때문이다 — 크론이 없어서
+  // "다음에 목록을 새로 받을 때" 발급되는 구조다. 여기서 당기면 그 자리에서 받아온다.
+  const { isRefreshing, onRefresh } = useRefreshing(refresh);
 
   // 상태는 저장된 값이 아니라 지금 시각 기준으로 계산한다(만료는 시각이 지나면 그 순간부터다)
   const coupons = allCoupons.filter((c) => couponStatus(c, now) === couponFilter);
@@ -52,7 +59,22 @@ export default function RewardsScreen() {
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top']}>
       <BackHeader title="리워드" color={theme.text} />
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+
+      {/* 갱신 실패 안내. 여긴 쿠폰을 보는 화면이라 조용히 넘어가면 "받아야 할 쿠폰이 없다"로
+          읽힌다 — 발급이 이 갱신 안에서 일어나기 때문에 더 그렇다. (예매관리 화면과 같은 처리) */}
+      {error ? <RefreshErrorBanner message={error} onRetry={refresh} theme={theme} /> : null}
+
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.text} // iOS 스피너
+            colors={[theme.text]} // Android 스피너
+            progressBackgroundColor={theme.background} // Android 스피너 뒤 원판
+          />
+        }>
         {/* 스탬프 진행도 + 여권 바로가기 */}
         <View style={[styles.card, { backgroundColor: theme.emptyCellBackground }]}>
           <View style={styles.progressRow}>

@@ -6,7 +6,15 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackHeader } from '@/components/back-header';
@@ -18,6 +26,7 @@ import { BookingStatus, deriveAllBookings, DerivedBooking } from '@/data/booking
 import { formatDate, formatDateTime } from '@/data/schedule';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useNow } from '@/hooks/use-now';
+import { useRefreshing } from '@/hooks/use-refreshing';
 
 // 상태 뱃지 색 (예매완료=파랑, 관람완료=네이비, 취소=회색)
 const BOOKING_STATUS_COLOR: Record<BookingStatus, string> = {
@@ -36,6 +45,9 @@ export default function BookingsScreen() {
 
   const { bookings, error, refresh } = useBookings();
   const now = useNow();
+
+  // 당겨서 새로고침. 다른 기기에서 하거나 취소한 예매가 이걸로 들어온다.
+  const { isRefreshing, onRefresh } = useRefreshing(refresh);
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('예매완료');
   const [query, setQuery] = useState('');
@@ -108,7 +120,17 @@ export default function BookingsScreen() {
         )}
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.text} // iOS 스피너
+            colors={[theme.text]} // Android 스피너
+            progressBackgroundColor={theme.background} // Android 스피너 뒤 원판
+          />
+        }>
         {filtered.length === 0 ? (
           <Text style={[styles.emptyText, { color: theme.textSecondary }]}>해당하는 예매가 없어요.</Text>
         ) : (

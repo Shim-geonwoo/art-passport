@@ -12,10 +12,20 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Image, LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Image,
+  LayoutChangeEvent,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Rect } from 'react-native-svg';
 
+import { RefreshErrorBanner } from '@/components/refresh-error-banner';
 import { CategoryColors, CategoryIcons, Colors, Theme } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
 import { useBookings } from '@/contexts/bookings';
@@ -24,6 +34,7 @@ import { isCouponUsable } from '@/data/coupons';
 import { formatDate } from '@/data/schedule';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useNow } from '@/hooks/use-now';
+import { useRefreshing } from '@/hooks/use-refreshing';
 
 // 여권 한 페이지에 들어가는 스탬프 칸 개수 (3x3 고정, 항상 이만큼 그린다)
 const TOTAL_STAMP_SLOTS = STAMPS_PER_PAGE; // 9
@@ -56,7 +67,13 @@ export default function PassportScreen() {
 
   // 중앙 데이터에서 관람완료 예매를 스탬프로 파생받고, 현재 페이지 것만 고른다.
   // (deriveStamps가 각 스탬프에 page/slotIndex를 이미 계산해 준다)
-  const { bookings, coupons } = useBookings();
+  const { bookings, coupons, error, refresh } = useBookings();
+
+  // 당겨서 새로고침. 여권은 "관람 시각이 지나면 스탬프가 찍히는" 화면이라 useNow만으로도
+  // 시간이 흐르지만, 다른 기기에서 한 예매나 새로 발급된 쿠폰은 서버를 다시 불러야 들어온다.
+  // (쿠폰 발급 issue_due_coupons()도 refresh() 안에서 함께 일어난다)
+  const { isRefreshing, onRefresh } = useRefreshing(refresh);
+
   const allStamps = deriveStamps(bookings, now);
   // 전체 여권 페이지 수 (스탬프 9개당 1페이지, 최소 1페이지)
   const totalPages = Math.max(1, Math.ceil(allStamps.length / STAMPS_PER_PAGE));
@@ -116,7 +133,23 @@ export default function PassportScreen() {
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: screenBackground }]} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      {/* 갱신에 실패했으면 한 줄로 알린다. 이미 찍힌 스탬프는 그대로 두고 위에 얹기만 한다.
+          조용히 넘어가면 "9칸을 채웠는데 쿠폰이 안 나왔다"처럼 보인다 —
+          쿠폰 발급(issue_due_coupons)이 바로 이 갱신 안에서 일어나기 때문이다.
+          다른 화면들과 같이 스크롤 밖에 고정해서, 좌우 여백(16)도 똑같이 맞춘다. */}
+      {error ? <RefreshErrorBanner message={error} onRetry={refresh} theme={theme} /> : null}
+
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.text} // iOS 스피너
+            colors={[theme.text]} // Android 스피너
+            progressBackgroundColor={screenBackground} // Android 스피너 뒤 원판
+          />
+        }>
         {/* 상단: ART PORT 로고 + 검색 아이콘 */}
         <View style={styles.header}>
           <Text style={[styles.logo, { color: theme.text }]}>ART PORT</Text>

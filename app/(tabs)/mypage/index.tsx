@@ -5,7 +5,7 @@
 
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Theme, ThemeColors } from '@/constants/colors';
@@ -16,6 +16,7 @@ import { deriveAllBookings, passportPageInfo } from '@/data/bookings';
 import { isCouponUsable } from '@/data/coupons';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useNow } from '@/hooks/use-now';
+import { useRefreshing } from '@/hooks/use-refreshing';
 
 export default function MyPageHomeScreen() {
   const colorScheme = useColorScheme();
@@ -28,7 +29,12 @@ export default function MyPageHomeScreen() {
   const now = useNow();
 
   // 메뉴 옆에 살짝 보여줄 요약값 계산
-  const { bookings, coupons } = useBookings();
+  const { bookings, coupons, refresh } = useBookings();
+
+  // 당겨서 새로고침. 여기 요약값(관람 N · 쿠폰 N)도 같은 목록에서 나오므로 함께 갱신된다.
+  // 갱신 실패 안내(RefreshErrorBanner)는 일부러 안 붙였다 — 이 화면은 메뉴일 뿐이고,
+  // 실제 내용을 보는 하위 화면(예매관리·리워드)이 각자 배너를 갖고 있다.
+  const { isRefreshing, onRefresh } = useRefreshing(refresh);
 
   const bookingCount = deriveAllBookings(bookings, now).length;
   const pageInfo = passportPageInfo(bookings, now);
@@ -36,7 +42,17 @@ export default function MyPageHomeScreen() {
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.text} // iOS 스피너
+            colors={[theme.text]} // Android 스피너
+            progressBackgroundColor={theme.background} // Android 스피너 뒤 원판
+          />
+        }>
         {/* 프로필 (누르면 프로필 편집으로) */}
         <Pressable style={styles.profile} onPress={() => router.push('/mypage/profile')}>
           <View style={[styles.avatar, { backgroundColor: theme.emptyCellBackground }]}>

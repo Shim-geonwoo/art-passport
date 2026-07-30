@@ -7,7 +7,16 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Link } from 'expo-router';
 import { useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Image,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GenreBadge } from '@/components/genre-badge';
@@ -19,6 +28,7 @@ import { useEvents } from '@/contexts/events';
 import { EventItem, formatEventSchedule, isBookable } from '@/data/events';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useNow } from '@/hooks/use-now';
+import { useRefreshing } from '@/hooks/use-refreshing';
 
 // 상단 카테고리 탭 목록 (design-system.md 1-2 순서 그대로)
 const GENRES: Genre[] = ['전시', '클래식·무용', '콘서트', '연극', '뮤지컬'];
@@ -33,6 +43,10 @@ export default function BookingListScreen() {
 
   const now = useNow();
   const { events, isLoading, error, refresh } = useEvents();
+
+  // 당겨서 새로고침. 카탈로그 자체는 잘 안 바뀌지만 회차별 잔여석(sold_count)이 여기 실려 오므로,
+  // 남이 예매해서 줄어든 자리가 이걸로 들어온다. (안 그러면 매진된 회차가 계속 "2석"으로 보인다)
+  const { isRefreshing, onRefresh } = useRefreshing(refresh);
 
   // 검색 중에는 카테고리를 무시하고 전체에서 찾는다.
   // "레베카"를 찾으려고 뮤지컬 탭을 먼저 골라야 한다면 검색을 쓰는 의미가 없기 때문이다.
@@ -113,7 +127,18 @@ export default function BookingListScreen() {
         <LoadError message={error} onRetry={refresh} />
       ) : (
         /* flex:1로 탭 바를 뺀 나머지 세로 공간을 차지하고, 그 안에서만 스크롤되게 한다 */
-        <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
+        <ScrollView
+          style={styles.list}
+          contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={onRefresh}
+              tintColor={theme.text} // iOS 스피너
+              colors={[theme.text]} // Android 스피너
+              progressBackgroundColor={theme.background} // Android 스피너 뒤 원판
+            />
+          }>
           {isLoading ? (
             <Text style={[styles.statusText, { color: theme.textSecondary }]}>불러오는 중...</Text>
           ) : filteredEvents.length === 0 ? (

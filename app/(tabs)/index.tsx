@@ -17,10 +17,21 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Animated,
+  Easing,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { RefreshErrorBanner } from '@/components/refresh-error-banner';
 import { CategoryColors, CategoryIcons, CategoryLabels, Colors, Genre, Theme } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
 import { useAuth } from '@/contexts/auth';
@@ -28,6 +39,7 @@ import { useBookings } from '@/contexts/bookings';
 import { DerivedBooking, deriveBoardingPasses } from '@/data/bookings';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useNow } from '@/hooks/use-now';
+import { useRefreshing } from '@/hooks/use-refreshing';
 
 // 카드 스택 한 칸의 크기 (docs/design-system.md 8-1: 270 x 380)
 const CARD_WIDTH = 270;
@@ -159,14 +171,22 @@ export default function BoardingPassScreen() {
   const screenBackground = colorScheme === 'light' ? SCREEN_BACKGROUND_LIGHT : SCREEN_BACKGROUND_DARK;
   // 헤더 글씨/아이콘도 화면 배경(라이트=흰색/다크=진회색)에 맞춰 색을 바꾼다
   const headerColor = colorScheme === 'light' ? Colors.textPrimary : Colors.textOnColor;
-  const headerPlaceholderColor = colorScheme === 'light' ? Theme.light.textSecondary : Theme.dark.textSecondary;
+  // 이 화면은 배경색만 따로 쓰고, 글씨·안내 배너 같은 나머지는 공통 토큰을 그대로 쓴다.
+  // 배경과 같은 기준("라이트로 확실히 설정된 경우만 라이트")으로 골라야 색이 서로 어긋나지 않는다.
+  const theme = colorScheme === 'light' ? Theme.light : Theme.dark;
+  const headerPlaceholderColor = theme.textSecondary;
 
   // "지금" 시각을 화면이 처음 열릴 때 한 번만 고정한다 (렌더링 중간에 결과가 안 바뀌게)
   const now = useNow();
 
   // 앱 전체가 공유하는 예매 목록 (앱 최상단 BookingsProvider)
-  const { bookings } = useBookings();
+  const { bookings, error, refresh } = useBookings();
   const { profile } = useAuth();
+
+  // 당겨서 새로고침. 이 화면은 앱을 켜자마자 보이는 곳인데, 예매 목록을 다시 받아오는 시점이
+  // 로그인 직후와 예매·취소 직후뿐이라 앱을 켜 둔 채로는 다른 기기에서 산 티켓이 영영 안 들어왔다.
+  // (useNow는 "지금 시각"만 새로 읽을 뿐 서버를 다시 부르지는 않는다)
+  const { isRefreshing, onRefresh } = useRefreshing(refresh);
 
   // 보딩패스 PASSENGER 칸에 찍을 이름 = 로그인한 회원의 닉네임(public.users).
   // 프로필을 아직 못 불러온 아주 짧은 순간엔 기본값으로 대체한다.
@@ -280,22 +300,10 @@ export default function BoardingPassScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery]);
 
-  // 보여줄 티켓이 없어도, 화면 타이틀(ART PASS)과 검색 아이콘은 계속 보여준다
-  // ("안내 문구 없이 빈 화면"은 카드 목록에만 해당하는 규칙이다)
-  if (visibleBookings.length === 0) {
-    return (
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: screenBackground }]} edges={['top']}>
-        <BoardingPassHeader
-          color={headerColor}
-          placeholderColor={headerPlaceholderColor}
-          isSearchOpen={isSearchOpen}
-          searchQuery={searchQuery}
-          onToggleSearch={handleToggleSearch}
-          onChangeSearch={setSearchQuery}
-        />
-      </SafeAreaView>
-    );
-  }
+  // 티켓이 하나도 없는 경우를 따로 분기하지 않는다 — 아래 그리기 코드가 그대로 빈 화면을 만든다
+  // (카드 목록이 비고, "+N장" 뱃지도 안 붙는다). 예전엔 여기서 헤더만 그리고 일찍 돌아갔는데,
+  // 그러면 티켓이 없을 때는 당겨서 새로고침을 할 수 없었다 — 하필 새로고침이 가장 필요한 상황이다.
+  // ("안내 문구 없이 빈 화면"이라는 규칙은 그대로다. 헤더와 검색 아이콘만 계속 보인다)
 
   // 애니메이션 보간(interpolate)에 쓸 "자리별 값" 배열. 카드 수만큼 만들되 최소 2칸은 있어야 한다
   // (interpolate는 최소 2개의 입력/출력 값 쌍이 필요하다).
@@ -321,8 +329,26 @@ export default function BoardingPassScreen() {
         onChangeSearch={setSearchQuery}
       />
 
-      {/* 카드 스택 영역: 화면 가운데에 카드 3장이 겹쳐 쌓인 고정 자리를 만든다 */}
-      <View style={styles.stackArea}>
+      {/* 갱신에 실패했으면 한 줄로 알린다. 받아둔 티켓은 그대로 두고 위에 얹기만 한다 —
+          조용히 넘어가면 "방금 예매했는데 지갑에 없다"를 사용자가 오해하게 된다.
+          (첫 조회부터 실패한 경우는 BookingsProvider가 전체 화면으로 안내하므로 여기까지 오지 않는다) */}
+      {error ? <RefreshErrorBanner message={error} onRetry={refresh} theme={theme} /> : null}
+
+      {/* 카드 스택 영역: 화면 가운데에 카드 3장이 겹쳐 쌓인 고정 자리를 만든다.
+          ScrollView인 이유는 스크롤이 필요해서가 아니라 당겨서 새로고침을 붙이기 위해서다.
+          카드가 몇 장이든 화면 안에 들어가므로 실제로 스크롤되지는 않는다. */}
+      <ScrollView
+        style={styles.stackScroll}
+        contentContainerStyle={styles.stackArea}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={onRefresh}
+            tintColor={headerColor} // iOS 스피너
+            colors={[headerColor]} // Android 스피너
+            progressBackgroundColor={screenBackground} // Android 스피너 뒤 원판
+          />
+        }>
         <View style={styles.stackContainer}>
           {visibleBookings
             .filter((booking) => renderedIds.includes(booking.id))
@@ -381,7 +407,7 @@ export default function BoardingPassScreen() {
             <Text style={styles.moreBadgeText}>+{hiddenCount}장</Text>
           </Pressable>
         ) : null}
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -564,9 +590,16 @@ const styles = StyleSheet.create({
     fontSize: 20,
   },
 
-  // 카드 스택을 화면 가운데(위아래/좌우)로 오게 하는 바깥 영역
-  stackArea: {
+  // 헤더 아래 남은 세로 공간을 스크롤 영역이 전부 차지하게 한다.
+  // (이게 없으면 ScrollView가 내용 높이에 맞춰 줄어들어서, 당길 수 있는 범위가 카드 높이로 좁아진다)
+  stackScroll: {
     flex: 1,
+  },
+  // 카드 스택을 화면 가운데(위아래/좌우)로 오게 하는 바깥 영역.
+  // ScrollView의 contentContainerStyle이라 flex가 아니라 flexGrow를 쓴다 —
+  // "남는 공간을 채우되, 내용이 더 크면 그만큼 늘어난다"가 여기서 필요한 동작이다.
+  stackArea: {
+    flexGrow: 1,
     alignItems: 'center',
     justifyContent: 'center', // 보딩패스를 화면 위쪽이 아니라 중간쯤으로 내린다
   },
