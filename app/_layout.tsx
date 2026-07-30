@@ -28,22 +28,30 @@ SplashScreen.preventAutoHideAsync();
 export default function RootLayout() {
   // 앱 전체에서 쓸 Noto Sans KR 폰트를 한 번만 불러온다.
   // (docs/design-system.md "2. 타이포그래피" - 폰트: 전체 Noto Sans KR)
-  const [fontsLoaded] = useFonts({
+  // useFonts는 [불러왔는가, 실패했는가] 두 값을 준다.
+  // 예전엔 앞의 것만 받아 썼는데, 그러면 폰트 로딩이 실패했을 때 fontsLoaded가 영영
+  // false로 남는다 — 스플래시가 안 내려가고 앱이 그 자리에서 멈춘다.
+  const [fontsLoaded, fontError] = useFonts({
     NotoSansKR_300Light,
     NotoSansKR_400Regular,
     NotoSansKR_500Medium,
     NotoSansKR_700Bold,
   });
 
+  // 폰트를 못 불러왔어도 앱은 떠야 한다. 글씨가 시스템 기본 글꼴로 보일 뿐,
+  // 예매도 보딩패스도 다 된다. 글꼴 하나 때문에 아무것도 못 하게 두는 것보다 낫다.
+  // ("성공했거나 실패했거나" = 더 기다릴 이유가 없다는 뜻)
+  const fontsSettled = fontsLoaded || !!fontError;
+
   useEffect(() => {
-    if (fontsLoaded) {
-      // 폰트 준비가 끝났으니 스플래시 화면을 내린다
+    if (fontsSettled) {
+      // 기다릴 이유가 없어졌으니 스플래시 화면을 내린다
       SplashScreen.hideAsync();
     }
-  }, [fontsLoaded]);
+  }, [fontsSettled]);
 
-  // 폰트가 아직 준비 안 됐으면 아무것도 그리지 않고 기다린다 (스플래시가 대신 보여준다)
-  if (!fontsLoaded) {
+  // 아직 결과를 기다리는 중이면 아무것도 그리지 않는다 (스플래시가 대신 보여준다)
+  if (!fontsSettled) {
     return null;
   }
 
