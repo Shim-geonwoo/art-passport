@@ -153,7 +153,8 @@ export default function PassportScreen() {
         {/* 상단: ART PORT 로고 + 검색 아이콘 */}
         <View style={styles.header}>
           <Text style={[styles.logo, { color: theme.text }]}>ART PORT</Text>
-          <Ionicons name="search-outline" size={22} color={theme.text} />
+          {/* 크기를 24로 맞췄다 (보딩패스 헤더의 검색 아이콘과 같은 값). 예전엔 22였다 */}
+          <Ionicons name="search-outline" size={24} color={theme.text} />
         </View>
 
         {/* 스탬프 3x3 그리드 (항상 9칸: 스탬프 + 점선 빈 칸) */}
@@ -299,17 +300,22 @@ const styles = StyleSheet.create({
   },
 
   // 상단 로고 + 검색 아이콘
+  // 보딩패스 화면의 헤더(app/(tabs)/index.tsx의 styles.header)와 같은 값으로 맞춘다.
+  // 두 화면 모두 상단에 "로고 + 돋보기"가 같은 모양으로 놓이는데, 예전엔 이쪽만
+  // 높이를 내용에 맡겨서(paddingVertical) 글씨와 아이콘이 미묘하게 다른 자리에 있었다.
+  // 좌우 여백(16)은 scrollContent가 이미 주고 있어서 여기선 안 준다.
   header: {
+    height: 42,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 8, // 페이지 넘기기 버튼까지 스크롤 없이 한 화면에 들어오도록 16 -> 8로 줄임
-    marginBottom: 4, // 8 -> 4
+    marginBottom: 4, // 그리드와의 간격. 보딩패스는 다음 요소가 flex로 밀려서 이 값이 없다
   },
   logo: {
     fontFamily: Fonts.bold,
     fontSize: 20, // Figma: ART PORT 20
-    letterSpacing: 1,
+    // letterSpacing을 뺐다. 보딩패스 타이틀엔 자간이 없어서, 같은 크기·굵기인데도
+    // 이쪽만 글자가 벌어져 보였다.
   },
 
   // 스탬프 그리드 한 줄 (3칸)
