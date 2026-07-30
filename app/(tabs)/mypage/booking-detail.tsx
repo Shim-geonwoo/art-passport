@@ -50,7 +50,10 @@ export default function BookingDetailScreen() {
 
   // 전시(기간형, showEndAt 있음)는 시각이 없는 관람이라 날짜만 보여준다
   const whenText = booking.event.showEndAt ? formatDate(booking.showAt) : formatDateTime(booking.showAt);
-  const canCancel = booking.status === '예매완료'; // 관람 전에만 취소 가능
+  // 공연 시작 전에만 취소할 수 있다. status가 아니라 canCancel을 쓰는 이유는 data/bookings.ts에
+  // 적어뒀다 — 스탬프 기준이 "관람일 다음 날"이라, 공연이 시작된 뒤에도 그날 안에는
+  // status가 예매완료로 남는다.
+  const canCancel = booking.canCancel;
 
   // "예매 취소하기": 확인 후 취소 처리(Context에 반영, 실패하면 안내). 웹은 Alert.alert가 no-op이라 window.confirm 사용
   async function doCancel() {
@@ -154,9 +157,13 @@ export default function BookingDetailScreen() {
           </Pressable>
         ) : (
           <Text style={[styles.cancelHint, { color: theme.textSecondary }]}>
-            {booking.status === '관람완료'
-              ? '이미 관람이 끝난 예매예요.'
-              : '이미 취소된 예매예요.'}
+            {booking.status === '취소'
+              ? '이미 취소된 예매예요.'
+              : booking.status === '관람완료'
+                ? '이미 관람이 끝난 예매예요.'
+                : // 예매완료인데 취소가 안 되는 경우 = 공연이 이미 시작됐다.
+                  // (스탬프는 내일 찍히지만 취소는 지금부터 안 된다)
+                  '이미 시작된 공연은 취소할 수 없어요.'}
           </Text>
         )}
       </ScrollView>

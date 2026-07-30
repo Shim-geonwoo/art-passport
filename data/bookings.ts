@@ -37,24 +37,40 @@ export type DerivedBooking = {
   showAt: Date; // 관람 시각 (= watched_at)
   bookedAt: Date; // 예매한 시각 (= created_at). 영수증처럼 "언제 샀는지"를 보여줄 때 쓴다
   status: BookingStatus;
-  isBoardingPass: boolean; // 월렛(보딩패스)에 올라가는가 = 아직 관람 전인가
+  isBoardingPass: boolean; // 월렛(보딩패스)에 올라가는가 = 아직 관람일이 안 지났는가
   isSoon: boolean; // 관람이 임박했는가 (오늘 포함 3일 이내). 강조 표시용
   daysUntilShow: number; // 관람일까지 며칠 남았나 (달력 기준, 오늘이면 0). 이미 지났으면 음수
   hasStamp: boolean; // 관람완료라서 스탬프가 찍혔는가
+  canCancel: boolean; // 지금 취소할 수 있는가 (= 공연 시작 전인가). status와 별개다 — 아래 참고
   quantity: number;
   discountRate: number; // 적용된 할인율(%). 쿠폰을 안 썼으면 0
   originalPrice: number;
   totalPrice: number;
 };
 
+// 스탬프가 찍히는 시각 = 관람일 "다음 날" 00:00.
+// 관람일이 7/29면 7/30이 되는 순간 스탬프가 된다.
+//
+// 왜 공연이 끝나는 시각이 아니라 날짜가 바뀌는 시각인가:
+// 공연이 몇 시에 끝나는지를 우리는 모른다(저장하는 건 시작 시각뿐이다). 19:30 공연이
+// 21:00에 끝날지 23:00에 끝날지 알 수 없는데, 시작 시각을 기준으로 삼으면 아직 공연을
+// 보고 있는 중에 티켓이 지갑에서 사라지고 스탬프가 찍힌다. "그날이 지나면"으로 잡으면
+// 그런 일이 없고, 사용자에게도 "어제 본 공연"이라는 감각과 맞는다.
+function stampTimeFor(showAt: Date): Date {
+  const next = startOfDay(showAt);
+  next.setDate(next.getDate() + 1);
+  return next;
+}
+
 // docs/data-structure.md "상태(status) 계산 규칙"을 그대로 코드로 옮긴다.
 function deriveBooking(row: BookingRow, now: Date): DerivedBooking {
   const showAt = new Date(row.watched_at);
+  const stampAt = stampTimeFor(showAt);
 
   let status: BookingStatus;
   if (row.is_cancelled) {
     status = '취소';
-  } else if (now < showAt) {
+  } else if (now < stampAt) {
     status = '예매완료';
   } else {
     status = '관람완료';
@@ -63,9 +79,17 @@ function deriveBooking(row: BookingRow, now: Date): DerivedBooking {
   // 보딩패스: 예매가 끝나면 바로 월렛에 올라온다(= 예매완료인 모든 티켓).
   // 예전에는 "관람 3일 전부터"만 보여줬는데, 예매하고 나서 한참 아무 데도 안 보이는 게
   // "예매하면 티켓이 지갑에 들어온다"는 앱 컨셉과 맞지 않아 조건을 없앴다.
-  // 관람 시각이 지나면 status가 관람완료로 바뀌면서 자연스럽게 보딩패스에서 빠지고 스탬프가 된다.
+  // 관람일이 지나면 status가 관람완료로 바뀌면서 자연스럽게 보딩패스에서 빠지고 스탬프가 된다.
+  // (공연이 끝난 당일 밤에는 아직 지갑에 남아 있다 — 위 stampTimeFor 참고)
   const isBoardingPass = status === '예매완료';
   const hasStamp = status === '관람완료';
+
+  // 취소는 "공연 시작 시각"이 기준이다. 서버 cancel_booking의 watched_at > now()와 같은 조건이다.
+  //
+  // status와 일부러 나눠 둔다. 스탬프 기준이 "관람일 다음 날"로 바뀌면서, 공연이 이미 시작된
+  // 뒤에도 그날 안에는 status가 예매완료로 남게 됐다. 그때 status만 보고 취소 버튼을 띄우면
+  // 버튼은 보이는데 서버가 거절하는 상태가 된다 — 이미 시작한 공연은 취소할 수 없으니 서버가 맞다.
+  const canCancel = status === '예매완료' && now < showAt;
 
   // "며칠 남았나"는 시:분이 아니라 달력 날짜로 센다. 오늘 밤 공연이든 오늘 아침 공연이든
   // 사용자에겐 똑같이 "오늘"이라서다. (오늘=0, 내일=1)
@@ -88,6 +112,7 @@ function deriveBooking(row: BookingRow, now: Date): DerivedBooking {
     isSoon,
     daysUntilShow,
     hasStamp,
+    canCancel,
     quantity: row.quantity,
     discountRate: row.used_coupon_id ? COUPON_DISCOUNT_RATE : 0,
     originalPrice: row.original_price,
