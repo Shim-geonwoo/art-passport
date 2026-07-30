@@ -114,7 +114,7 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-public-key
 
 ### 3. 데이터베이스 준비
 
-마이그레이션 12개를 적용한다. 스키마·RLS·서버 함수와 함께 **공연·전시 50건이 시드로 들어간다.**
+마이그레이션 13개를 적용한다. 스키마·RLS·서버 함수와 함께 **공연·전시 50건이 시드로 들어간다.**
 
 ```bash
 npx supabase link --project-ref <your-project-ref>
