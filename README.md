@@ -84,7 +84,7 @@
 | `create_booking` | 예매 생성 + 쿠폰 사용 처리 (한 트랜잭션). 회차 행을 잠그고 잔여석을 직접 세어 초과 판매를 막는다 |
 | `cancel_booking` | 취소 + 썼던 쿠폰 반환 |
 | `issue_due_coupons` | 스탬프 9개마다 쿠폰 발급 |
-| `delete_own_account` | 회원 탈퇴 (`auth.uid()`로만 지워 남의 계정을 지목할 수 없다) |
+| `delete_own_account` | 회원 탈퇴 (`auth.uid()`로만 지워 남의 계정을 지목할 수 없다). 프로필 사진도 함께 지운다 — Storage는 연쇄 삭제가 안 닿는다 |
 
 자세한 내용은 [`docs/data-structure.md`](docs/data-structure.md)에 정리돼 있다.
 
@@ -114,7 +114,7 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-public-key
 
 ### 3. 데이터베이스 준비
 
-마이그레이션 13개를 적용한다. 스키마·RLS·서버 함수와 함께 **공연·전시 50건이 시드로 들어간다.**
+마이그레이션 14개를 적용한다. 스키마·RLS·서버 함수와 함께 **공연·전시 50건이 시드로 들어간다.**
 
 ```bash
 npx supabase link --project-ref <your-project-ref>
