@@ -12,6 +12,12 @@
 --   delete  -> 예외 없이 0건. 같은 이유
 --   select  -> 0건
 -- 그래서 update/delete는 "안 바뀌었는지"로 확인한다.
+--
+-- 아래 throws_ok는 오류 코드뿐 아니라 **메시지까지 확인한다.** 이유가 있다:
+-- 권한 부족(permission denied)과 정책 차단(row-level security)이 오류 코드가 42501로 같아서,
+-- 코드만 보면 둘을 구분할 수 없다. 실제로 이 테스트를 처음 돌렸을 때 events에 authenticated의
+-- insert 권한이 없어서 "정책이 막았다"고 착각하며 통과했다(정작 관리자도 못 쓰는 상태였다).
+-- 메시지를 함께 보면 "무엇이 막았는지"까지 고정된다.
 
 begin;
 
@@ -61,8 +67,8 @@ select is(
 select throws_ok(
   $$ select count(*) from admins $$,
   '42501'::char(5),
-  null,
-  '일반 사용자는 관리자 표를 읽을 수 없다'
+  'permission denied for table admins',
+  '일반 사용자는 관리자 표를 읽을 수 없다 (권한 자체가 없다)'
 );
 
 -- ── 4. 자기를 관리자로 만들 수 없다 (가장 중요) ───────────
@@ -71,7 +77,7 @@ select throws_ok(
 select throws_ok(
   $$ insert into admins (user_id) values ('11111111-1111-1111-1111-111111111111') $$,
   '42501'::char(5),
-  null,
+  'permission denied for table admins',
   '일반 사용자는 자기를 관리자로 만들 수 없다'
 );
 
@@ -80,8 +86,8 @@ select throws_ok(
   $$ insert into events (title, genre, show_at, price, venue_name)
      values ('몰래 넣은 공연', '연극', now() + interval '5 days', 1000, '아무데나') $$,
   '42501'::char(5),
-  null,
-  '일반 사용자는 공연을 등록할 수 없다'
+  'new row violates row-level security policy for table "events"',
+  '일반 사용자는 공연을 등록할 수 없다 (권한은 있고 정책이 막는다)'
 );
 
 -- update는 예외가 아니라 0건으로 막힌다 — 값이 그대로인지로 확인한다
@@ -97,8 +103,8 @@ select throws_ok(
   $$ insert into event_schedules (event_id, starts_at, capacity)
      values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', now() + interval '10 days', 100) $$,
   '42501'::char(5),
-  null,
-  '일반 사용자는 회차를 만들 수 없다'
+  'new row violates row-level security policy for table "event_schedules"',
+  '일반 사용자는 회차를 만들 수 없다 (권한은 있고 정책이 막는다)'
 );
 
 -- ── 8. 조회는 여전히 누구나 가능하다 ──────────────────────
