@@ -164,7 +164,7 @@ select throws_ok(
                            'f1111111-1111-1111-1111-111111111111'::uuid,
                            'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid, null) $$,
   '22023'::char(5),
-  '사용할 수 없는 쿠폰입니다.',
+  '사용할 수 없는 쿠폰입니다. (사용 완료됐거나 기간이 지났어요)',
   '이미 쓴 쿠폰은 다시 쓸 수 없다'
 );
 
@@ -174,7 +174,7 @@ select throws_ok(
                            'f2222222-2222-2222-2222-222222222222'::uuid,
                            'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid, null) $$,
   '22023'::char(5),
-  '사용할 수 없는 쿠폰입니다.',
+  '사용할 수 없는 쿠폰입니다. (사용 완료됐거나 기간이 지났어요)',
   '남의 쿠폰은 id를 알아도 쓸 수 없다'
 );
 
