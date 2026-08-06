@@ -151,6 +151,30 @@ function formatTime(date: Date): string {
   return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
 }
 
+// 카드 한 장을 스크린리더가 읽어줄 한 문장으로 만든다.
+//
+// 카드 안에는 글자 조각이 15개 넘게 흩어져 있다(PASSENGER / DATE / TIME 같은 라벨과 그 값들).
+// 그냥 두면 스크린리더가 "SEAT", "자유석", "CAP", "1"처럼 조각마다 한 번씩 멈춰서,
+// 카드 한 장을 지나가는 데만 열댓 번을 넘겨야 한다. 그래서 카드를 하나로 묶고(accessible)
+// 여기서 만든 문장 하나로 대신 읽게 한다 — 눈으로 카드를 한눈에 보는 것과 같은 경험이다.
+function cardAccessibilityLabel(booking: Booking): string {
+  const when = `${booking.showAt.getFullYear()}년 ${booking.showAt.getMonth() + 1}월 ${booking.showAt.getDate()}일`;
+  // 전시(기간형)는 관람 시각이 없어서 timeText가 빈 문자열이다 — 그럴 땐 시간을 아예 빼고 읽는다
+  const time = booking.timeText
+    ? ` ${booking.showAt.getHours()}시 ${booking.showAt.getMinutes()}분`
+    : '';
+
+  // 'D-3' 같은 배지는 눈으로 볼 때만 통하는 표기라, 소리로는 뜻을 풀어서 읽어준다
+  let remaining = '';
+  if (booking.dDayText === 'D-DAY') {
+    remaining = ', 오늘 관람';
+  } else if (booking.dDayText) {
+    remaining = `, 관람까지 ${booking.dDayText.replace('D-', '')}일 남음`;
+  }
+
+  return `${booking.genre} ${booking.eventTitle}, ${booking.venueName}, ${when}${time}, ${booking.seatInfo} ${booking.capacity}명${remaining}`;
+}
+
 // 중앙 데이터(data/bookings.ts)에서 파생된 예매 한 건을,
 // 이 화면의 카드가 그릴 수 있는 표현용 형태로 옮긴다.
 // "지금 보딩패스로 보여줄지"의 판단(=아직 관람 전인가)과 정렬은 deriveBoardingPasses가 이미 해준다.
@@ -400,8 +424,19 @@ export default function BoardingPassScreen() {
                 ]}
               >
                 {/* 카드 전체를 누를 수 있게 한다. 뒤 카드는 앞 카드에 아랫부분이 가려져 있어서,
-                    실제로는 눈에 보이는 윗부분(삐져나온 부분)만 눌린다 */}
-                <Pressable onPress={() => bringCardToFront(booking.id)}>
+                    실제로는 눈에 보이는 윗부분(삐져나온 부분)만 눌린다.
+
+                    accessible={true}로 카드 안 글자들을 하나로 묶어서, 조각마다 멈추지 않고
+                    cardAccessibilityLabel이 만든 한 문장으로 읽히게 한다.
+                    맨 앞 카드는 이미 앞에 있으니(bringCardToFront가 그냥 돌아간다) 누르라고 하지 않는다. */}
+                <Pressable
+                  onPress={() => bringCardToFront(booking.id)}
+                  accessible
+                  accessibilityRole="button"
+                  accessibilityLabel={cardAccessibilityLabel(booking)}
+                  accessibilityHint={
+                    stackPosition === 0 ? undefined : '두 번 누르면 이 티켓을 맨 앞으로 가져옵니다'
+                  }>
                   <BoardingPassCard booking={booking} />
                 </Pressable>
               </Animated.View>
@@ -411,7 +446,13 @@ export default function BoardingPassScreen() {
 
         {/* 스택에 다 못 보여준 카드가 몇 장 남았는지. 누르면 맨 앞 카드가 뒤로 가면서 다음 카드가 나온다 */}
         {hiddenCount > 0 ? (
-          <Pressable style={styles.moreBadge} onPress={cycleStack}>
+          /* '+3장'은 눈으로 보면 "더 있다"로 읽히지만 소리로는 뜻이 안 통해서, 라벨로 풀어 읽는다 */
+          <Pressable
+            style={styles.moreBadge}
+            onPress={cycleStack}
+            accessibilityRole="button"
+            accessibilityLabel={`가려진 티켓 ${hiddenCount}장`}
+            accessibilityHint="두 번 누르면 다음 티켓이 앞으로 나옵니다">
             <Text style={styles.moreBadgeText}>+{hiddenCount}장</Text>
           </Pressable>
         ) : null}
@@ -453,7 +494,13 @@ function BoardingPassHeader({
         <Text style={[styles.headerTitle, { color }]}>{SCREEN_TITLE}</Text>
       )}
 
-      <Pressable onPress={onToggleSearch} hitSlop={8}>
+      {/* 아이콘만 있는 버튼이라 라벨을 직접 단다. 검색창을 열고 닫는 같은 버튼이므로,
+          지금 어느 쪽으로 동작하는지에 따라 읽히는 말도 함께 바뀌어야 한다. */}
+      <Pressable
+        onPress={onToggleSearch}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel={isSearchOpen ? '검색 닫기' : '보딩패스 검색'}>
         <Ionicons name={isSearchOpen ? 'close' : 'search-outline'} size={24} color={color} />
       </Pressable>
     </View>
