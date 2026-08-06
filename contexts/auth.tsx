@@ -7,6 +7,7 @@
 import { Session, User } from '@supabase/supabase-js';
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
+import { fetchIsAdmin } from '@/data/admin';
 import { fetchMyProfile, Profile } from '@/data/profile';
 import { supabase } from '@/lib/supabase';
 
@@ -14,6 +15,10 @@ type AuthValue = {
   session: Session | null;
   user: User | null;
   profile: Profile | null; // public.users의 내 프로필(닉네임·이미지). 로그인 후 채워진다
+  // 관리자인가. 마이페이지에 관리자 메뉴를 띄울지 정하는 데만 쓴다.
+  // 이 값이 true라고 해서 무엇이 되는 게 아니다 — 실제 차단은 DB(RLS)가 한다.
+  // 그래서 조회에 실패하면 조용히 false로 둔다(메뉴가 안 보일 뿐, 잘못 열리지 않는다).
+  isAdmin: boolean;
   isLoading: boolean; // 저장된 세션을 처음 불러오는 동안 true
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   // 성공하면 needsEmailConfirmation으로 "가입은 됐지만 이메일 확인이 더 필요한지"를 알려준다
@@ -44,6 +49,7 @@ const AuthContext = createContext<AuthValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -87,11 +93,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshProfile();
   }, [refreshProfile]);
 
+  // 관리자 여부도 로그인할 때 한 번 물어본다. 사람이 바뀌면 반드시 다시 물어야 해서
+  // 프로필과 같은 자리에 둔다 — 로그아웃 후 다른 계정으로 들어왔는데 앞사람의 값이
+  // 남아 있으면 안 되기 때문이다(그래도 서버가 막지만, 있지도 않은 메뉴가 보인다).
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!userId) {
+      setIsAdmin(false);
+      return;
+    }
+
+    fetchIsAdmin()
+      .then((result) => {
+        if (!cancelled) {
+          setIsAdmin(result);
+        }
+      })
+      .catch(() => {
+        // 실패하면 관리자가 아닌 것으로 둔다. 조용히 넘어가도 되는 이유는 이 값이 권한이
+        // 아니라 "메뉴를 띄울지"일 뿐이어서다 — 잘못 열리는 쪽이 아니라 안 보이는 쪽으로 틀린다.
+        if (!cancelled) {
+          setIsAdmin(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
   const value = useMemo<AuthValue>(
     () => ({
       session,
       user: session?.user ?? null,
       profile,
+      isAdmin,
       isLoading,
 
       async signIn(email, password) {
@@ -167,7 +204,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       refreshProfile,
     }),
-    [session, profile, isLoading, refreshProfile]
+    [session, profile, isAdmin, isLoading, refreshProfile]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
