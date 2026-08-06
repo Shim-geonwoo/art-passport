@@ -24,7 +24,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(14);
+select plan(16);
 
 -- ── 픽스처 (여기까지는 postgres 자격) ─────────────────────
 insert into auth.users (instance_id, id, aud, role, email, encrypted_password,
@@ -42,7 +42,24 @@ insert into events (id, title, genre, show_at, show_end_at, price, venue_name)
 values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '기존 공연', '뮤지컬',
         now() + interval '10 days', null, 50000, '테스트 극장');
 
--- ── 1. is_hidden 기본값 ───────────────────────────────────
+-- ── 1~2. 표 권한이 실제로 열려 있는가 ─────────────────────
+--
+-- 정책보다 먼저 통과해야 하는 문이라 여기서 못박아 둔다. 이걸 테스트로 두는 이유는,
+-- 권한이 없을 때 나는 오류가 정책이 막을 때와 코드가 같아서(42501) 조용히 오해하기 쉽기 때문이다.
+-- 실패하면 pgTAP이 "무엇이 빠졌는지(missing)"를 그대로 찍어준다.
+select table_privs_are(
+  'public', 'events', 'authenticated',
+  array['SELECT', 'INSERT', 'UPDATE'],
+  'authenticated는 events에 조회·등록·수정 권한이 있다 (삭제는 없다)'
+);
+
+select table_privs_are(
+  'public', 'event_schedules', 'authenticated',
+  array['SELECT', 'INSERT', 'UPDATE', 'DELETE'],
+  'authenticated는 event_schedules에 삭제까지 권한이 있다'
+);
+
+-- ── 3. is_hidden 기본값 ───────────────────────────────────
 select is(
   (select is_hidden from events where id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
   false,
