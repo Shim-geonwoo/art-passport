@@ -4,10 +4,15 @@
 # 특히 파생 로직(예매 상태·스탬프·쿠폰 만료)은 "특정 시각에 앱을 켜본 상황"을
 # 재현해야 확인되는 것이라 손으로 챙기기 어려웠다.
 #
-# 세 검사가 서로 잡는 게 다르다:
+# 검사가 서로 잡는 게 다르다:
 #   타입 검사  — 없는 속성을 쓰거나 타입이 안 맞는 것
 #   린트       — 안 쓰는 import, 훅 의존성 실수 등
-#   테스트     — 로직이 실제로 의도대로 계산하는가 (data/__tests__)
+#   테스트     — 앱 쪽 파생 로직이 의도대로 계산하는가 (data/__tests__)
+#   DB 테스트  — 서버 함수가 의도대로 막고 계산하는가 (supabase/tests)
+#
+# DB 테스트를 왜 따로 두는가: 앱 테스트(jest)는 "화면에 어떻게 보이는가"를 확인할 뿐,
+# 예매를 정말 만들어보지는 않는다. 돈과 권한이 걸린 판단(초과 판매, 쿠폰 중복 발급,
+# 남의 예매 취소)은 전부 DB 함수 안에 있어서 진짜 Postgres를 띄워야만 확인된다.
 
 name: CI
 
@@ -41,3 +46,27 @@ jobs:
       # --ci: 스냅샷을 새로 만들지 않고 실패로 처리한다(CI에서 조용히 통과하는 걸 막는다)
       - name: 테스트
         run: npx jest --ci
+
+  # 서버 함수(create_booking / cancel_booking / issue_due_coupons) 테스트.
+  #
+  # 진짜 Postgres가 필요해서 위 job과 나눠 둔다. supabase start가 도커로 로컬 DB를 띄우고
+  # supabase/migrations를 전부 적용하므로, 실제 스키마·RLS·트리거가 그대로 올라간 상태에서
+  # 테스트가 돈다. (개발 PC에 도커가 없어도 CI에서는 돌아간다 — 러너에는 도커가 깔려 있다)
+  db-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # 마이그레이션을 적용하며 로컬 DB를 띄운다 (1~2분 걸린다)
+      - name: 로컬 Supabase 띄우기
+        run: supabase start
+
+      # supabase/tests/*.sql 을 pgTAP으로 돌린다. 각 파일은 트랜잭션 안에서 돌고
+      # 끝에 rollback하므로, 테스트가 서로의 데이터를 건드리지 않는다.
+      - name: DB 함수 테스트
+        run: supabase test db
