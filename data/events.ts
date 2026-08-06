@@ -82,6 +82,11 @@ export async function fetchEvents(): Promise<EventItem[]> {
   const { data, error } = await supabase
     .from('events')
     .select('*, event_schedules(id, starts_at, capacity, sold_count)')
+    // 관리자가 내린 공연은 카탈로그에서 뺀다.
+    // 공연은 삭제할 수 없어서(예매가 달려 있으면 DB가 거부한다) "내리기"를 이 칸으로 한다.
+    // 이미 예매한 사람의 보딩패스·스탬프는 bookings에 조인된 event를 쓰므로 그대로 보인다 —
+    // 그쪽은 이 조회를 거치지 않는다.
+    .eq('is_hidden', false)
     .order('show_at', { ascending: true });
   if (error) {
     throw error;
