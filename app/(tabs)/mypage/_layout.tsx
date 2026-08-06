@@ -29,6 +29,8 @@ export default function MyPageStackLayout() {
           라우트 자체를 막지는 않는데, 막아야 할 것은 화면이 아니라 저장이라서다 —
           그건 DB의 RLS가 한다(20260806150000_admin_role.sql). */}
       <Stack.Screen name="admin" />
+      {/* 공연 편집. id를 주면 편집, 안 주면 새 공연 등록이 된다 */}
+      <Stack.Screen name="admin-event" />
     </Stack>
   );
 }
