@@ -23,7 +23,8 @@ export default function MyPageHomeScreen() {
   const theme: ThemeColors = colorScheme === 'dark' ? Theme.dark : Theme.light;
 
   // 프로필(public.users)에서 닉네임을 읽는다. 아직 안 불러왔으면 기본값으로 대체한다.
-  const { profile } = useAuth();
+  // isAdmin은 아래 관리자 메뉴를 띄울지 정하는 데만 쓴다(권한 자체는 DB가 판단한다).
+  const { profile, isAdmin } = useAuth();
   const nickname = profile?.nickname || '사용자';
 
   const now = useNow();
@@ -89,6 +90,24 @@ export default function MyPageHomeScreen() {
           <Divider theme={theme} />
           <MenuRow label="설정" theme={theme} onPress={() => router.push('/mypage/settings')} />
         </View>
+
+        {/* 관리자 메뉴. 관리자 계정에서만 나타난다.
+            일반 사용자에게는 이 카드 자체가 없어서 앱이 지금과 똑같아 보인다.
+            메뉴를 감추는 건 편의일 뿐이고, 실제 차단은 DB의 RLS가 한다 —
+            그래서 이 값 조회에 실패해도(=false로 떨어져도) 위험한 쪽으로 틀리지 않는다.
+
+            다른 메뉴와 카드를 나눠 둔 이유: 예매관리·리워드·설정은 모든 사용자의 것이고
+            여기는 운영자의 자리라, 한 덩어리로 붙여두면 성격이 섞여 보인다. */}
+        {isAdmin ? (
+          <View style={[styles.card, styles.adminCard, { backgroundColor: theme.emptyCellBackground }]}>
+            <MenuRow
+              label="관리자"
+              hint="공연 관리"
+              theme={theme}
+              onPress={() => router.push('/mypage/admin')}
+            />
+          </View>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
@@ -167,6 +186,10 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 16,
     overflow: 'hidden',
+  },
+  // 관리자 카드는 위 메뉴 카드와 성격이 달라서 사이를 띄운다 (여백은 4의 배수)
+  adminCard: {
+    marginTop: 12,
   },
   divider: {
     height: 0.5,

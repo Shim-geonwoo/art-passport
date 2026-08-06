@@ -25,6 +25,10 @@ export default function MyPageStackLayout() {
       <Stack.Screen name="booking-detail" />
       <Stack.Screen name="rewards" />
       <Stack.Screen name="settings" />
+      {/* 관리자 전용. 여기 등록해 둬도 허브(index)에서 관리자에게만 항목이 보인다.
+          라우트 자체를 막지는 않는데, 막아야 할 것은 화면이 아니라 저장이라서다 —
+          그건 DB의 RLS가 한다(20260806150000_admin_role.sql). */}
+      <Stack.Screen name="admin" />
     </Stack>
   );
 }
