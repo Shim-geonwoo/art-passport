@@ -74,8 +74,10 @@ grant execute on function public.is_admin() to authenticated;
 --
 -- 권한을 전체 authenticated에게 여는 게 위험해 보이지만 그렇지 않다. 문을 두 개 다 통과해야 하고,
 -- 두 번째 문(정책)이 is_admin()을 요구한다. admins 표에서 두 문을 다 닫아둔 것과 짝이 되는 구조다.
-grant insert, update on table events to authenticated;
-grant insert, update, delete on table event_schedules to authenticated;
+-- select까지 함께 적는다. 이미 열려 있을 값이지만, update는 where 절을 읽기 위해 select 권한도
+-- 요구하기 때문에 "이 표에 필요한 권한"을 한자리에 모아 두는 편이 나중에 덜 헷갈린다.
+grant select, insert, update on table events to authenticated;
+grant select, insert, update, delete on table event_schedules to authenticated;
 
 drop policy if exists "events_insert_admin" on events;
 create policy "events_insert_admin" on events
