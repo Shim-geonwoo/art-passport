@@ -8,13 +8,14 @@
 //      특히 '회차 없음'이 중요하다 — 공연을 등록해도 회차를 안 만들면 예매 탭에 안 뜨는데,
 //      이유를 안 보여주면 등록이 실패한 줄 알게 된다.
 //
-// 이 화면은 아직 읽기 전용이다. 편집은 3단계, 회차 관리는 4단계에서 붙인다.
+// 줄을 누르면 편집 화면(admin-event)으로 간다. 회차 관리는 4단계에서 붙인다.
 //
 // 화면을 감추는 것은 편의일 뿐이라는 점을 적어둔다. 관리자가 아닌 사람이 이 경로로 들어와도
 // 목록은 (누구나 볼 수 있는 카탈로그라) 보이지만, 무언가를 저장하려 하면 서버가 거절한다.
 // 실제 차단은 DB의 RLS 정책이 한다(20260806150000_admin_role.sql).
 
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -70,6 +71,15 @@ export default function AdminEventsScreen() {
     load().finally(() => setIsLoading(false));
   }, [load]);
 
+  // 편집 화면에서 돌아올 때마다 다시 불러온다.
+  // 이 목록은 화면이 직접 들고 있는 값이라(전역 상태가 아니라) 저장한 내용이 저절로 반영되지
+  // 않는다. 방금 고친 제목이 옛날 값으로 보이면 저장이 안 된 줄 알게 된다.
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
+
   const onRefresh = useCallback(async () => {
     setIsRefreshing(true);
     await load();
@@ -93,7 +103,17 @@ export default function AdminEventsScreen() {
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top']}>
-      <BackHeader title="관리자" color={theme.text} />
+      <View style={styles.header}>
+        <BackHeader title="관리자" color={theme.text} />
+        {/* 새 공연 등록. id 없이 편집 화면에 들어가면 등록 모드가 된다 */}
+        <Pressable
+          style={styles.newButton}
+          onPress={() => router.push('/mypage/admin-event')}
+          accessibilityRole="button">
+          <Ionicons name="add" size={16} color={Colors.textOnColor} />
+          <Text style={styles.newButtonText}>새 공연</Text>
+        </Pressable>
+      </View>
 
       {/* 관리자가 아닌데 이 화면에 들어온 경우. 막는 건 서버지만, 여기서도 상태를 분명히 알려준다
           (아무것도 저장이 안 되는 이유를 화면에서 알 수 있어야 한다) */}
@@ -163,10 +183,7 @@ export default function AdminEventsScreen() {
   );
 }
 
-// 목록의 한 줄. 제목 + 장르 + 일정 + "왜 안 보이는지" 뱃지들.
-//
-// 아직 누를 수 없다 — 편집 화면이 3단계라서다. 눌리는 것처럼 보이면 고장으로 오해하므로
-// Pressable로 감싸지 않고 그냥 View로 둔다.
+// 목록의 한 줄. 제목 + 장르 + 일정 + "왜 안 보이는지" 뱃지들. 누르면 편집 화면으로 간다.
 function AdminEventRow({
   event,
   theme,
@@ -179,7 +196,11 @@ function AdminEventRow({
   const visibility = catalogVisibility(event, now);
 
   return (
-    <View style={[styles.row, { borderColor: theme.dashedBorder }]}>
+    <Pressable
+      style={[styles.row, { borderColor: theme.dashedBorder }]}
+      onPress={() =>
+        router.push({ pathname: '/mypage/admin-event', params: { id: event.id } })
+      }>
       <View style={styles.rowHead}>
         <Text style={[styles.rowTitle, { color: theme.text }]} numberOfLines={1}>
           {event.title}
@@ -216,7 +237,7 @@ function AdminEventRow({
         ) : null}
         {!event.posterUrl ? <StatusBadge label="포스터 없음" tone="muted" theme={theme} /> : null}
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -246,6 +267,30 @@ function StatusBadge({
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
+  },
+
+  // 헤더 줄: 뒤로가기+제목(BackHeader)과 "새 공연" 버튼을 양끝에 놓는다.
+  // 왼쪽 여백은 주지 않는다 — 다른 하위 화면(리워드·설정)도 BackHeader를 화면 끝에 붙여 쓰고 있어서,
+  // 여기만 들여쓰면 화면을 오갈 때 뒤로가기 화살표가 좌우로 흔들린다.
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingRight: 16,
+  },
+  newButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Colors.navy,
+    borderRadius: 20, // radius-pill
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  newButtonText: {
+    fontFamily: Fonts.medium,
+    fontSize: 12,
+    color: Colors.textOnColor,
   },
 
   // 관리자가 아닐 때 알림 줄
