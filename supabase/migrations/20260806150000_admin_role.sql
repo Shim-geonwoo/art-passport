@@ -65,6 +65,17 @@ grant execute on function public.is_admin() to authenticated;
 --   반면 공연 등록·수정은 **관리자가 곧 정보의 출처다.** 서버가 다시 계산할 원본이 없다.
 --   확인할 것은 "누가 하느냐" 하나뿐이고, 그건 정책이 하는 일이다.
 --   함수로 감싸면 events의 칸 수만큼 인자를 늘어놓은 껍데기 함수가 될 뿐이다.
+--
+-- 먼저 권한(GRANT)부터 연다. **정책만으로는 아무것도 안 된다** — 둘은 다른 문이다.
+--   GRANT   : "이 역할이 이 표에 이 동작을 시도할 수 있는가" (표 단위)
+--   POLICY  : "그중 어떤 행에 대해 허용되는가" (행 단위)
+-- 권한이 없으면 정책을 보기도 전에 permission denied로 끊긴다. 지금 events/event_schedules에는
+-- authenticated에게 조회 권한만 있어서, 정책만 만들면 관리자도 아무것도 못 쓴다.
+--
+-- 권한을 전체 authenticated에게 여는 게 위험해 보이지만 그렇지 않다. 문을 두 개 다 통과해야 하고,
+-- 두 번째 문(정책)이 is_admin()을 요구한다. admins 표에서 두 문을 다 닫아둔 것과 짝이 되는 구조다.
+grant insert, update on table events to authenticated;
+grant insert, update, delete on table event_schedules to authenticated;
 
 drop policy if exists "events_insert_admin" on events;
 create policy "events_insert_admin" on events
