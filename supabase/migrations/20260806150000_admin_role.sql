@@ -90,8 +90,10 @@ create policy "events_update_admin" on events
   using (public.is_admin())
   with check (public.is_admin());
 
--- delete 정책은 **일부러 만들지 않는다.** 아래 is_hidden 설명 참고.
--- (정책이 없으면 delete는 예외 없이 0건 처리된다 — 지워지는 행이 하나도 없다)
+-- 공연 delete는 정책도 안 만들고 권한도 안 준다(위 grant에 delete가 빠져 있다). 아래 is_hidden 설명 참고.
+--
+-- 둘 다 없으면 정책만 없을 때보다 확실하다. 정책만 없으면 delete는 "조용히 0건"으로 끝나서
+-- 호출한 쪽은 성공한 줄 안다. 권한이 없으면 예외로 끊겨서 실수를 바로 알 수 있다.
 
 drop policy if exists "event_schedules_insert_admin" on event_schedules;
 create policy "event_schedules_insert_admin" on event_schedules

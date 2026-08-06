@@ -24,7 +24,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(16);
+select plan(18);
 
 -- ── 픽스처 (여기까지는 postgres 자격) ─────────────────────
 insert into auth.users (instance_id, id, aud, role, email, encrypted_password,
@@ -47,16 +47,23 @@ values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '기존 공연', '뮤지컬',
 -- 정책보다 먼저 통과해야 하는 문이라 여기서 못박아 둔다. 이걸 테스트로 두는 이유는,
 -- 권한이 없을 때 나는 오류가 정책이 막을 때와 코드가 같아서(42501) 조용히 오해하기 쉽기 때문이다.
 -- 실패하면 pgTAP이 "무엇이 빠졌는지(missing)"를 그대로 찍어준다.
-select table_privs_are(
-  'public', 'events', 'authenticated',
-  array['SELECT', 'INSERT', 'UPDATE'],
-  'authenticated는 events에 조회·등록·수정 권한이 있다 (삭제는 없다)'
+select ok(
+  has_table_privilege('authenticated', 'events', 'SELECT')
+    and has_table_privilege('authenticated', 'events', 'INSERT')
+    and has_table_privilege('authenticated', 'events', 'UPDATE'),
+  'authenticated는 events를 조회·등록·수정할 권한이 있다 (누구인지 가리는 건 정책의 몫)'
 );
 
-select table_privs_are(
-  'public', 'event_schedules', 'authenticated',
-  array['SELECT', 'INSERT', 'UPDATE', 'DELETE'],
-  'authenticated는 event_schedules에 삭제까지 권한이 있다'
+-- 공연 삭제는 두 겹으로 막혀 있다: 정책도 없고 권한도 안 줬다.
+-- 그래서 관리자여도 delete는 "조용히 0건"이 아니라 아예 예외로 끊긴다(아래 테스트에서 확인).
+select ok(
+  not has_table_privilege('authenticated', 'events', 'DELETE'),
+  'events 삭제 권한은 아무에게도 주지 않았다 (내릴 때는 is_hidden을 쓴다)'
+);
+
+select ok(
+  has_table_privilege('authenticated', 'event_schedules', 'DELETE'),
+  '회차는 삭제 권한이 있다 (잘못 만든 회차를 없앨 수 있어야 한다)'
 );
 
 -- ── 3. is_hidden 기본값 ───────────────────────────────────
@@ -171,15 +178,23 @@ select lives_ok(
   '관리자는 회차를 만들 수 있다'
 );
 
--- ── 13. 관리자도 공연을 지울 수는 없다 ────────────────────
--- delete 정책을 일부러 안 만들었다. 예매가 달린 공연이 사라지면 예매 상세와 스탬프가
--- 가리킬 곳을 잃기 때문에, 내리는 건 삭제가 아니라 is_hidden으로 한다.
-delete from events where id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+-- ── 관리자도 공연을 지울 수는 없다 ────────────────────────
+-- 예매가 달린 공연이 사라지면 예매 상세와 스탬프가 가리킬 곳을 잃기 때문에,
+-- 내리는 건 삭제가 아니라 is_hidden으로 한다.
+--
+-- 정책이 없을 때는 보통 "조용히 0건"으로 끝나지만, 여기는 삭제 **권한**부터 없어서
+-- 정책을 보기도 전에 예외로 끊긴다. 실수로 지울 여지가 그만큼 더 없다.
+select throws_ok(
+  $$ delete from events where id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' $$,
+  '42501'::char(5),
+  'permission denied for table events',
+  '관리자여도 공연은 삭제할 수 없다'
+);
 
 select is(
   (select count(*)::integer from events where id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
   1,
-  '관리자여도 공연은 삭제되지 않는다 (내릴 때는 is_hidden을 쓴다)'
+  '삭제를 시도해도 공연은 그대로 남아 있다'
 );
 
 -- ── 14. 관리자 권한이 남의 예매까지 열어주지는 않는다 ─────
