@@ -58,7 +58,11 @@ $$;
 
 -- 이 함수는 카탈로그를 통째로 고쳐 쓰는 운영용 도구다. 앱(anon/authenticated)이 부를 일이 없다.
 -- PostgreSQL은 새 함수의 실행 권한을 PUBLIC에 기본으로 주기 때문에, 명시적으로 회수한다.
--- (설령 실행되더라도 events/event_schedules에는 select 정책만 있어서 쓰기는 RLS에 막힌다)
+--
+-- 이 회수가 유일한 방어선이다. 이 마이그레이션을 만들 때는 events/event_schedules에 select
+-- 정책밖에 없어서 "설령 실행되더라도 RLS에 막힌다"고 적어뒀는데, 뒤에 관리자 쓰기 정책이
+-- 생기면서(20260806150000_admin_role.sql) 그 말은 더 이상 맞지 않는다 —
+-- 관리자 계정으로 이 함수를 부르면 카탈로그 날짜가 실제로 전부 밀린다.
 revoke execute on function public.shift_catalog_dates() from public;
 
 -- 이 마이그레이션을 적용하는 시점에도 한 번 맞춰둔다.
