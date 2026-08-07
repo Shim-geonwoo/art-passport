@@ -116,7 +116,6 @@ function RootLayoutNav() {
             세션이 바뀌면(로그인/로그아웃) 이 가드가 자동으로 화면을 전환해준다. */}
         <Stack.Protected guard={!!session}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
         </Stack.Protected>
         <Stack.Protected guard={!session}>
           <Stack.Screen name="(auth)" options={{ headerShown: false }} />
