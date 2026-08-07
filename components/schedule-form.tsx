@@ -19,7 +19,8 @@ import { AdminScheduleDraft } from '@/data/admin';
 import { formatDateInput, formatTimeInput } from '@/data/schedule';
 
 // id가 null이면 "새 회차", 값이 있으면 그 회차를 고치는 중이다.
-export type ScheduleFormState = AdminScheduleDraft & { id: string | null };
+// repeatDays는 새로 만들 때만 쓴다 — 있는 회차를 고치면서 "며칠간"은 뜻이 통하지 않는다.
+export type ScheduleFormState = AdminScheduleDraft & { id: string | null; repeatDays: string };
 
 export function ScheduleForm({
   form,
@@ -67,13 +68,36 @@ export function ScheduleForm({
         />
       </View>
 
-      <FormField
-        label="정원 (석)"
-        value={form.capacity}
-        onChangeText={(capacity) => onChange({ ...form, capacity })}
-        placeholder="1200"
-        theme={theme}
-      />
+      <View style={styles.formRow}>
+        <FormField
+          label="정원 (석)"
+          value={form.capacity}
+          onChangeText={(capacity) => onChange({ ...form, capacity })}
+          placeholder="1200"
+          theme={theme}
+          flex={form.id ? undefined : 2}
+        />
+        {/* 반복은 새로 만들 때만. 있는 회차를 고치면서 "며칠간"은 뜻이 통하지 않는다 */}
+        {form.id === null ? (
+          <FormField
+            label="며칠간"
+            value={form.repeatDays}
+            onChangeText={(repeatDays) => onChange({ ...form, repeatDays })}
+            placeholder="1"
+            theme={theme}
+            flex={1}
+          />
+        ) : null}
+      </View>
+
+      {/* 2일 이상이면 무슨 일이 벌어질지 미리 말해준다 — 누르고 나서 목록이 길어진 걸 보고
+          알게 되면, 되돌리려고 회차를 하나씩 지워야 한다 */}
+      {form.id === null && Number(form.repeatDays) > 1 ? (
+        <Text style={[styles.formHint, { color: theme.textSecondary }]}>
+          {form.date || '첫날'}부터 {form.repeatDays}일간 매일 {form.time || '같은 시각'} 회차를
+          만들어요. 이미 있는 시각은 건너뛰어요.
+        </Text>
+      ) : null}
 
       {/* 이미 판 표가 있으면 정원을 그 아래로 내릴 수 없다. 저장을 눌러 알기 전에 미리 적어둔다 */}
       {soldCount ? (

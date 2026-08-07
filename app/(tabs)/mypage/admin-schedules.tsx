@@ -41,6 +41,7 @@ import {
   SCHEDULE_IN_USE,
   createAdminSchedule,
   deleteAdminSchedule,
+  expandScheduleDraft,
   fetchAdminEvent,
   fetchAdminSchedules,
   updateAdminSchedule,
@@ -95,6 +96,7 @@ function newScheduleForm(schedules: AdminScheduleItem[], event: AdminEventItem):
       date: toDateKey(next),
       time: formatTime(next),
       capacity: String(last.capacity),
+      repeatDays: '1',
     };
   }
   return {
@@ -102,6 +104,7 @@ function newScheduleForm(schedules: AdminScheduleItem[], event: AdminEventItem):
     date: toDateKey(event.showAt),
     time: formatTime(event.showAt),
     capacity: DEFAULT_CAPACITY,
+    repeatDays: '1',
   };
 }
 
@@ -154,7 +157,10 @@ export default function AdminSchedulesScreen() {
       return;
     }
 
-    const result = validateScheduleDraft(form, schedules, editing);
+    // 고칠 때는 한 건, 새로 만들 때는 "며칠간"만큼 부풀린다.
+    const result = form.id
+      ? validateScheduleDraft(form, schedules, editing)
+      : expandScheduleDraft(form, form.repeatDays, schedules);
     if ('error' in result) {
       notify('저장할 수 없어요', result.error);
       return;
@@ -162,10 +168,19 @@ export default function AdminSchedulesScreen() {
 
     setIsSaving(true);
     try {
-      if (form.id) {
-        await updateAdminSchedule(form.id, result.input);
+      if ('input' in result) {
+        await updateAdminSchedule(form.id!, result.input);
       } else {
-        await createAdminSchedule(id, result.input);
+        for (const input of result.inputs) {
+          await createAdminSchedule(id, input);
+        }
+        // 건너뛴 게 있으면 말해준다. 7일을 걸었는데 3개만 생기면 실패한 줄 알게 된다.
+        if (result.skipped > 0) {
+          notify(
+            '회차를 만들었어요',
+            `${result.inputs.length}개를 만들었어요. ${result.skipped}개는 같은 시각의 회차가 이미 있어 건너뛰었어요.`
+          );
+        }
       }
       await load();
       await refreshCatalog();
@@ -351,6 +366,7 @@ export default function AdminSchedulesScreen() {
                   date: toDateKey(schedule.startsAt),
                   time: formatTime(schedule.startsAt),
                   capacity: String(schedule.capacity),
+                  repeatDays: '1', // 편집에서는 안 쓴다(폼이 이 칸을 감춘다)
                 })
               }
             />

@@ -44,13 +44,13 @@ import {
   AdminScheduleInput,
   createAdminEvent,
   createAdminSchedule,
+  expandScheduleDraft,
   fetchAdminEvent,
   fetchAdminSchedules,
   removePoster,
   setEventHidden,
   updateAdminEvent,
   uploadPoster,
-  validateScheduleDraft,
 } from '@/data/admin';
 import {
   formatDateInput,
@@ -89,12 +89,17 @@ const DEFAULT_CAPACITY = '100';
 function nextPendingDraft(
   pending: AdminScheduleInput[],
   startDate: string
-): { date: string; time: string; capacity: string } {
+): Omit<ScheduleFormState, 'id'> {
   const last = pending[pending.length - 1];
   if (last) {
     const next = new Date(last.startsAt);
     next.setDate(next.getDate() + 1);
-    return { date: toDateKey(next), time: formatTime(next), capacity: String(last.capacity) };
+    return {
+      date: toDateKey(next),
+      time: formatTime(next),
+      capacity: String(last.capacity),
+      repeatDays: '1',
+    };
   }
 
   const showAt = parseDateKey(startDate, DEFAULT_HOUR);
@@ -102,6 +107,7 @@ function nextPendingDraft(
     date: showAt ? toDateKey(showAt) : '',
     time: DEFAULT_HOUR,
     capacity: DEFAULT_CAPACITY,
+    repeatDays: '1',
   };
 }
 
@@ -247,15 +253,17 @@ export default function AdminEventEditScreen() {
     if (!pendingForm) {
       return;
     }
-    const result = validateScheduleDraft(
+    // 검사와 반복 확장 모두 회차 화면과 같은 함수를 쓴다 — 같은 시각 회차가 안 된다는 규칙이
+    // 등록할 때만 빠져 있으면 만들고 나서야 걸린다.
+    const result = expandScheduleDraft(
       pendingForm,
+      pendingForm.repeatDays,
       pending.map((input, index) => ({
         id: `pending-${index}`,
         startsAt: input.startsAt,
         capacity: input.capacity,
         soldCount: 0,
-      })),
-      null
+      }))
     );
     if ('error' in result) {
       notify('회차를 추가할 수 없어요', result.error);
@@ -264,9 +272,16 @@ export default function AdminEventEditScreen() {
 
     // 이른 순으로 세워둔다. 회차 화면과 같은 순서라 저장 뒤에 목록이 뒤바뀌어 보이지 않는다.
     setPending((prev) =>
-      [...prev, result.input].sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())
+      [...prev, ...result.inputs].sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())
     );
     setPendingForm(null);
+
+    if (result.skipped > 0) {
+      notify(
+        '회차를 담았어요',
+        `${result.inputs.length}개를 담았어요. ${result.skipped}개는 같은 시각이 이미 있어 건너뛰었어요.`
+      );
+    }
   }, [pendingForm, pending]);
 
   const handleSave = useCallback(async () => {

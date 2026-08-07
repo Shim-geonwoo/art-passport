@@ -410,3 +410,63 @@ export function validateScheduleDraft(
 
   return { input: { startsAt, capacity } };
 }
+
+// 며칠치까지 한 번에 만들 수 있는가.
+//
+// 두 달치면 어지간한 공연 일정은 덮는다. 상한을 두는 이유는 실수를 막기 위해서다 — 365 같은 값을
+// 잘못 넣으면 회차가 무더기로 생기고, 지우는 건 한 개씩이라 되돌리는 데 훨씬 오래 걸린다.
+export const MAX_REPEAT_DAYS = 60;
+
+// 회차 하나를 "그날부터 며칠간 매일 같은 시각"으로 부풀린다.
+//
+// 왜 필요한가: 공연 회차는 보통 며칠씩 이어진다(시드도 공연당 9회차다). 하나씩 만들면 날짜만
+// 바꿔가며 같은 동작을 일곱 번 반복하게 되는데, 그건 사람이 아니라 기계가 할 일이다.
+//
+// 이미 있는 시각은 건너뛰고 몇 개를 건너뛰었는지 함께 돌려준다. 막지 않고 건너뛰는 이유:
+// "월·수·금만 있는 공연에 7일 반복을 걸어 빈 날을 채우는" 식으로 쓸 수 있어야 하고, 하나라도
+// 겹치면 통째로 거절하면 그때마다 사람이 겹치는 날을 찾아내야 한다.
+export function expandScheduleDraft(
+  draft: AdminScheduleDraft,
+  repeatDays: string,
+  siblings: AdminScheduleItem[]
+): { inputs: AdminScheduleInput[]; skipped: number } | { error: string } {
+  const days = Number(repeatDays.trim());
+  if (repeatDays.trim().length === 0 || !Number.isInteger(days) || days < 1) {
+    return { error: '며칠간 만들지 1 이상의 숫자로 입력해주세요.' };
+  }
+  if (days > MAX_REPEAT_DAYS) {
+    return { error: `한 번에 ${MAX_REPEAT_DAYS}일까지만 만들 수 있어요.` };
+  }
+
+  // 첫날은 평소와 같은 검사를 그대로 받는다(형식·정원·같은 시각 중복).
+  // 여기서 걸리면 나머지 날을 볼 것도 없다.
+  const first = validateScheduleDraft(draft, siblings, null);
+  if ('error' in first) {
+    return first;
+  }
+
+  const inputs: AdminScheduleInput[] = [first.input];
+  let skipped = 0;
+
+  // 이미 잡힌 시각들. 날짜를 더해가며 만든 것끼리도 겹칠 수 있어서 함께 담아둔다
+  // (서머타임이 없는 한 겹칠 일이 없지만, 검사가 한 곳에 모여 있는 편이 읽기 쉽다).
+  const taken = new Set([
+    ...siblings.map((s) => s.startsAt.getTime()),
+    first.input.startsAt.getTime(),
+  ]);
+
+  for (let i = 1; i < days; i += 1) {
+    // setDate로 하루씩 민다. 86400000ms를 더하면 서머타임이 있는 지역에서 시각이 밀린다.
+    const next = new Date(first.input.startsAt);
+    next.setDate(next.getDate() + i);
+
+    if (taken.has(next.getTime())) {
+      skipped += 1;
+      continue;
+    }
+    taken.add(next.getTime());
+    inputs.push({ startsAt: next, capacity: first.input.capacity });
+  }
+
+  return { inputs, skipped };
+}

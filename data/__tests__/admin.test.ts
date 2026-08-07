@@ -8,7 +8,7 @@
 //
 // 화면 없이 확인할 수 있도록 순수 함수로 떼어놨고, 여기서 그 함수만 부른다.
 
-import { validateScheduleDraft } from '@/data/admin';
+import { MAX_REPEAT_DAYS, expandScheduleDraft, validateScheduleDraft } from '@/data/admin';
 import type { AdminScheduleItem } from '@/data/admin';
 import { formatDateInput, formatTimeInput } from '@/data/schedule';
 
@@ -171,5 +171,76 @@ describe('validateScheduleDraft — 같은 시각 회차', () => {
     );
 
     expect(result).toHaveProperty('input');
+  });
+});
+
+// 회차 반복 추가 — "이 시각으로 며칠간"
+//
+// 공연 회차는 보통 며칠씩 이어진다(시드도 공연당 9회차다). 하나씩 만들면 날짜만 바꿔가며 같은
+// 동작을 반복하게 되는데, 그건 사람이 아니라 기계가 할 일이다.
+describe('expandScheduleDraft — 며칠간 반복', () => {
+  const 기본 = { date: '2026-08-14', time: '19:30', capacity: '100' };
+
+  it('1일이면 한 건만 나온다 — 반복을 안 쓴 것과 같다', () => {
+    const result = expandScheduleDraft(기본, '1', []);
+
+    expect(result).toEqual({ inputs: [{ startsAt: new Date('2026-08-14T19:30:00'), capacity: 100 }], skipped: 0 });
+  });
+
+  it('7일이면 그날부터 이레치가 같은 시각·같은 정원으로 나온다', () => {
+    const result = expandScheduleDraft(기본, '7', []);
+    if ('error' in result) {
+      throw new Error(result.error);
+    }
+
+    expect(result.inputs).toHaveLength(7);
+    expect(result.inputs[0].startsAt).toEqual(new Date('2026-08-14T19:30:00'));
+    expect(result.inputs[6].startsAt).toEqual(new Date('2026-08-20T19:30:00'));
+    expect(result.inputs.every((i) => i.capacity === 100)).toBe(true);
+  });
+
+  it('달을 넘어가도 날짜가 이어진다', () => {
+    const result = expandScheduleDraft({ ...기본, date: '2026-08-30' }, '3', []);
+    if ('error' in result) {
+      throw new Error(result.error);
+    }
+
+    expect(result.inputs[2].startsAt).toEqual(new Date('2026-09-01T19:30:00'));
+  });
+
+  it('이미 있는 시각은 건너뛰고 몇 개를 건너뛰었는지 알려준다', () => {
+    // 월·수·금만 있는 공연에 7일 반복을 걸어 빈 날을 채우는 식으로 쓸 수 있어야 한다.
+    // 하나라도 겹친다고 통째로 거절하면, 그때마다 사람이 겹치는 날을 찾아내야 한다.
+    const result = expandScheduleDraft(기본, '3', [
+      makeSchedule('s1', '2026-08-15T19:30:00'),
+    ]);
+    if ('error' in result) {
+      throw new Error(result.error);
+    }
+
+    expect(result.inputs).toHaveLength(2); // 14일, 16일
+    expect(result.skipped).toBe(1); // 15일
+  });
+
+  it('첫날이 이미 있으면 반복 자체가 막힌다 — 시작점을 못 잡는다', () => {
+    const result = expandScheduleDraft(기본, '7', [makeSchedule('s1', '2026-08-14T19:30:00')]);
+
+    expect(result).toHaveProperty('error');
+  });
+
+  it('0일이나 빈 값은 막는다', () => {
+    expect(expandScheduleDraft(기본, '0', [])).toHaveProperty('error');
+    expect(expandScheduleDraft(기본, '', [])).toHaveProperty('error');
+    expect(expandScheduleDraft(기본, '3.5', [])).toHaveProperty('error');
+  });
+
+  it('상한을 넘으면 막는다 — 365를 잘못 넣으면 되돌리는 데 훨씬 오래 걸린다', () => {
+    expect(expandScheduleDraft(기본, String(MAX_REPEAT_DAYS), [])).toHaveProperty('inputs');
+    expect(expandScheduleDraft(기본, String(MAX_REPEAT_DAYS + 1), [])).toHaveProperty('error');
+  });
+
+  it('첫날 검사는 평소와 같다 — 형식이 틀리면 반복 이전에 걸린다', () => {
+    expect(expandScheduleDraft({ ...기본, date: '2026-02-31' }, '7', [])).toHaveProperty('error');
+    expect(expandScheduleDraft({ ...기본, capacity: '' }, '7', [])).toHaveProperty('error');
   });
 });
