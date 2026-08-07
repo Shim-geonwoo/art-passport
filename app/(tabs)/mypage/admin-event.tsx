@@ -208,6 +208,11 @@ export default function AdminEventEditScreen() {
       return { error: '장소를 입력해주세요.' };
     }
 
+    // 빈 칸을 먼저 막는다. Number('')는 0이라 이 검사만으로는 그냥 통과해서,
+    // 가격을 안 적고 저장하면 조용히 무료 공연이 된다(0원은 실제로 쓰는 값이라 나중에도 티가 안 난다).
+    if (price.trim().length === 0) {
+      return { error: '가격을 입력해주세요. 무료면 0을 적어주세요.' };
+    }
     const priceNumber = Number(price);
     if (!Number.isInteger(priceNumber) || priceNumber < 0) {
       return { error: '가격은 0 이상의 숫자로 입력해주세요.' };

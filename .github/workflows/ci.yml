@@ -26,11 +26,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          # Node 20은 2026년 4월에 지원이 끝났다. 22가 현재 LTS다.
+          node-version: 22
           cache: npm
 
       # package-lock.json 그대로 설치한다(npm install과 달리 버전을 바꾸지 않는다)
@@ -56,7 +57,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # 버전을 고정한다. version: latest는 매번 GitHub API로 최신 릴리스를 물어보는데,
       # 그 호출이 rate limit에 걸리면 테스트를 돌려보지도 못하고 job이 죽는다

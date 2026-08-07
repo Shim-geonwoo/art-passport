@@ -16,7 +16,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(22);
+select plan(24);
 
 -- ── 픽스처 ────────────────────────────────────────────────
 -- auth.users에 넣으면 handle_new_user 트리거가 public.users 프로필을 자동으로 만들어준다.
@@ -290,6 +290,28 @@ select is(
   (select date_trunc('minute', starts_at) from event_schedules
    where id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'),
   '회차로 산 전시는 관람 시각이 그 회차 시각이 된다'
+);
+
+-- ── 23~24. 내린 공연(is_hidden)은 서버가 막는다 ───────────
+-- 화면 목록에서 빠지는 것과 별개다. events의 select 정책은 누구나 열려 있어서, id를 아는
+-- 사람은 화면을 거치지 않고도 예매를 시도할 수 있다(상세를 열어둔 채로 관리자가 내린 경우).
+--
+-- 이 검사는 다른 무엇보다 먼저 걸려야 해서, 회차가 멀쩡히 남아 있는 공연으로 확인한다.
+update events set is_hidden = true where id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+
+select throws_ok(
+  $$ select create_booking('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 1, null,
+                           'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid, null) $$,
+  '22023'::char(5),
+  '지금은 예매할 수 없는 공연입니다.',
+  '내린 공연은 회차가 남아 있어도 팔지 않는다'
+);
+
+-- 내리기는 "앞으로 팔지 않겠다"는 뜻이지 "이미 판 것을 없던 일로 하겠다"는 뜻이 아니다.
+-- 이미 산 사람의 취소까지 막히면, 관리자가 공연을 내린 순간 환불 길이 끊긴다.
+select lives_ok(
+  $$ select cancel_booking((select booking_id from made where label = 'plain')) $$,
+  '내린 공연이라도 이미 산 표는 취소할 수 있다'
 );
 
 select * from finish();
