@@ -235,3 +235,124 @@ describe('쿠폰 만료는 저장하지 않고 계산한다', () => {
     expect(isCouponUsable(c, at('2026-09-01T12:00:00'))).toBe(false);
   });
 });
+
+// ── 오픈 데이트 티켓 (기간형) ─────────────────────────────
+//
+// 기간형은 예매할 때 관람일을 고르지 않는다. watched_at이 비어 있다가, 전시장에서 티켓을 쓸 때
+// 채워진다. 안 쓰고 기한이 지나면 '만료'다 — 스탬프도 안 찍힌다.
+//
+// 여기서 확인하는 건 결국 하나다: **안 갔으면 여권에 기록이 남지 않는다.**
+// 기간이 끝났다고 자동으로 관람 처리하면 가지도 않은 전시가 스탬프로 찍힌다.
+function makeOpenDateBooking(
+  showAt: string,
+  showEndAt: string,
+  watchedAt: string | null = null
+): BookingRow {
+  return {
+    ...makeBooking(showAt),
+    id: `open-${showAt}`,
+    watched_at: watchedAt,
+    event: {
+      ...makeBooking(showAt).event,
+      genre: '전시',
+      show_at: showAt,
+      show_end_at: showEndAt,
+    },
+  };
+}
+
+describe('오픈 데이트 티켓 — 써야 관람이 된다', () => {
+  const 기간중 = new Date('2026-08-10T12:00:00');
+  const 기간후 = new Date('2026-10-05T12:00:00');
+
+  it('안 쓴 티켓은 기간 안이면 예매완료 — 보딩패스에 남는다', () => {
+    const rows = [makeOpenDateBooking('2026-08-01T19:00:00', '2026-10-01T19:00:00')];
+    const [booking] = deriveAllBookings(rows, 기간중);
+
+    expect(booking.status).toBe('예매완료');
+    expect(booking.isBoardingPass).toBe(true);
+    expect(booking.watchedAt).toBeNull();
+  });
+
+  it('안 쓰고 기한이 지나면 만료 — 스탬프가 안 찍힌다', () => {
+    const rows = [makeOpenDateBooking('2026-08-01T19:00:00', '2026-10-01T19:00:00')];
+    const [booking] = deriveAllBookings(rows, 기간후);
+
+    expect(booking.status).toBe('만료');
+    expect(booking.hasStamp).toBe(false);
+    expect(booking.isBoardingPass).toBe(false);
+    expect(deriveStamps(rows, 기간후)).toHaveLength(0);
+  });
+
+  it('기한 마지막 날에는 아직 쓸 수 있다 — 그날 하루는 유효한 티켓이다', () => {
+    const rows = [makeOpenDateBooking('2026-08-01T19:00:00', '2026-10-01T19:00:00')];
+    const 마지막날 = new Date('2026-10-01T23:00:00');
+
+    expect(deriveAllBookings(rows, 마지막날)[0].status).toBe('예매완료');
+  });
+
+  it('티켓을 쓰면 그 다음 날 스탬프가 찍힌다 — 회차형과 같은 규칙', () => {
+    const rows = [
+      makeOpenDateBooking('2026-08-01T19:00:00', '2026-10-01T19:00:00', '2026-08-10T15:00:00'),
+    ];
+
+    // 쓴 당일에는 아직 보딩패스에 남아 있다
+    expect(deriveAllBookings(rows, new Date('2026-08-10T20:00:00'))[0].status).toBe('예매완료');
+    // 다음 날이 되면 스탬프
+    const 다음날 = deriveAllBookings(rows, new Date('2026-08-11T09:00:00'))[0];
+    expect(다음날.status).toBe('관람완료');
+    expect(다음날.hasStamp).toBe(true);
+  });
+
+  it('안 쓴 티켓은 기한이 정렬 기준이 된다 — 급한 순으로 지갑에 쌓인다', () => {
+    const 늦게끝남 = makeOpenDateBooking('2026-08-01T19:00:00', '2026-12-01T19:00:00');
+    const 곧끝남 = makeOpenDateBooking('2026-08-02T19:00:00', '2026-08-20T19:00:00');
+    const passes = deriveBoardingPasses([늦게끝남, 곧끝남], 기간중);
+
+    expect(passes[0].event.showEndAt).toEqual(new Date('2026-08-20T19:00:00'));
+  });
+});
+
+describe('오픈 데이트 티켓 — 취소와 사용 가능 여부', () => {
+  const 기간중 = new Date('2026-08-10T12:00:00');
+
+  it('안 썼고 기한 안이면 취소할 수 있다', () => {
+    const rows = [makeOpenDateBooking('2026-08-01T19:00:00', '2026-10-01T19:00:00')];
+
+    expect(deriveAllBookings(rows, 기간중)[0].canCancel).toBe(true);
+  });
+
+  it('쓰고 나면 취소할 수 없다 — 다녀온 표는 못 무른다', () => {
+    const rows = [
+      makeOpenDateBooking('2026-08-01T19:00:00', '2026-10-01T19:00:00', '2026-08-10T10:00:00'),
+    ];
+
+    expect(deriveAllBookings(rows, 기간중)[0].canCancel).toBe(false);
+  });
+
+  it('만료된 티켓은 취소도 사용도 안 된다', () => {
+    const rows = [makeOpenDateBooking('2026-08-01T19:00:00', '2026-10-01T19:00:00')];
+    const [booking] = deriveAllBookings(rows, new Date('2026-10-05T12:00:00'));
+
+    expect(booking.canCancel).toBe(false);
+    expect(booking.canUseTicket).toBe(false);
+  });
+
+  it('전시가 시작되기 전에는 못 쓴다 — 안 열린 전시를 봤다고 할 수 없다', () => {
+    const rows = [makeOpenDateBooking('2026-09-01T19:00:00', '2026-10-01T19:00:00')];
+
+    expect(deriveAllBookings(rows, 기간중)[0].canUseTicket).toBe(false);
+  });
+
+  it('시작한 뒤에는 쓸 수 있다', () => {
+    const rows = [makeOpenDateBooking('2026-08-01T19:00:00', '2026-10-01T19:00:00')];
+
+    expect(deriveAllBookings(rows, 기간중)[0].canUseTicket).toBe(true);
+  });
+
+  it('회차형은 쓸 대상이 아니다 — 회차 날짜가 지나면 저절로 관람이 된다', () => {
+    const rows = [makeBooking('2026-08-20T19:30:00')];
+
+    expect(deriveAllBookings(rows, 기간중)[0].canUseTicket).toBe(false);
+  });
+});

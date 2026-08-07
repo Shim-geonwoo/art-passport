@@ -14,7 +14,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(9);
+select plan(11);
 
 -- ── 픽스처 ────────────────────────────────────────────────
 insert into auth.users (instance_id, id, aud, role, email, encrypted_password,
@@ -47,7 +47,7 @@ set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","r
 insert into made
 select 'with_coupon', create_booking('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 1,
                                      'f1111111-1111-1111-1111-111111111111'::uuid,
-                                     'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid, null);
+                                     'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid);
 
 select is(
   (select status from coupons where id = 'f1111111-1111-1111-1111-111111111111'),
@@ -84,7 +84,7 @@ select is(
 -- ── 5~6. 남의 예매는 취소할 수 없다 ───────────────────────
 insert into made
 select 'a_ticket', create_booking('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 1, null,
-                                  'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid, null);
+                                  'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid);
 
 -- 테스터B로 바꿔서 테스터A의 예매를 취소해본다.
 -- 함수는 조건에 안 맞으면 예외 없이 조용히 아무 것도 안 바꾼다 — 그래서 "안 바뀌었는지"로 확인한다.
@@ -153,6 +153,37 @@ select is(
   (select is_cancelled from bookings where id = '77777777-7777-7777-7777-777777777777'),
   true,
   '시작 한 시간 전이면 아직 취소할 수 있다'
+);
+
+-- ── 10~11. 오픈 데이트 티켓(기간형)의 취소 ────────────────
+--
+-- 기간형은 관람 시각이 비어 있다. 이전 조건(watched_at > now())만 있으면 null 비교가 참이 되지
+-- 않아서, 산 직후부터 취소가 막혔다. 기준은 "이미 관람했는가"여야 한다.
+insert into events (id, title, genre, show_at, show_end_at, price, venue_name)
+values ('cccccccc-1111-1111-1111-cccccccccccc', '취소 테스트 전시', '전시',
+        now() - interval '1 day', now() + interval '30 days', 20000, '테스트 미술관');
+
+insert into made
+select 'openDate', create_booking('cccccccc-1111-1111-1111-cccccccccccc'::uuid, 1, null, null);
+
+select cancel_booking((select booking_id from made where label = 'openDate'));
+
+select is(
+  (select is_cancelled from bookings where id = (select booking_id from made where label = 'openDate')),
+  true,
+  '아직 안 쓴 기간형 티켓은 취소할 수 있다'
+);
+
+-- 다녀온 표는 못 무른다. 티켓을 쓰면 watched_at이 채워져 회차형과 같은 규칙으로 넘어간다.
+insert into made
+select 'usedTicket', create_booking('cccccccc-1111-1111-1111-cccccccccccc'::uuid, 1, null, null);
+select mark_ticket_used((select booking_id from made where label = 'usedTicket'));
+select cancel_booking((select booking_id from made where label = 'usedTicket'));
+
+select is(
+  (select is_cancelled from bookings where id = (select booking_id from made where label = 'usedTicket')),
+  false,
+  '이미 쓴 티켓은 취소되지 않는다'
 );
 
 select * from finish();

@@ -23,16 +23,14 @@ import { useBookings } from '@/contexts/bookings';
 import { useEvents } from '@/contexts/events';
 import { createBooking } from '@/data/bookings';
 import { isCouponUsable } from '@/data/coupons';
-import { EventItem, isBookable, isPeriodBased, upcomingSchedules } from '@/data/events';
+import { isBookable, isPeriodBased, upcomingSchedules } from '@/data/events';
 import {
   formatDate,
   formatDateTime,
   formatMonthDayWeekday,
   formatTime,
   isSameDay,
-  MS_PER_DAY,
   startOfDay,
-  startOfToday,
   toDateKey,
 } from '@/data/schedule';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -42,23 +40,6 @@ import { useNow } from '@/hooks/use-now';
 const MIN_QUANTITY = 1;
 const MAX_QUANTITY = 4;
 const SEAT_INFO = '자유석';
-
-// 전시는 정해진 시각이 없어서 "그날 18시"를 관람 시각으로 본다.
-// 서버(create_booking)의 c_exhibition_hour와 반드시 같은 값이어야 한다 —
-// 화면에서 고를 수 있는 날과 서버가 받아주는 날이 어긋나지 않게 하려고 맞춰둔다.
-const EXHIBITION_HOUR = 18;
-
-// 전시에서 "오늘부터 고를 수 있나, 내일부터인가"를 정한다.
-// 오늘 18시가 아직 안 지났으면 오늘도 갈 수 있고, 지났으면 내일부터다.
-function earliestVisitDate(event: EventItem, now: Date): Date {
-  const closingToday = startOfToday(now);
-  closingToday.setHours(EXHIBITION_HOUR, 0, 0, 0);
-
-  const earliest =
-    now < closingToday ? startOfToday(now) : startOfToday(new Date(now.getTime() + MS_PER_DAY));
-  const opening = startOfToday(event.showAt);
-  return opening > earliest ? opening : earliest;
-}
 
 export default function CheckoutScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -80,7 +61,8 @@ export default function CheckoutScreen() {
   // 인원(매수). − / + 버튼으로 조절한다. 실제 상한은 남은 좌석에 따라 달라져서 아래에서 다시 계산한다.
   const [quantityInput, setQuantityInput] = useState(MIN_QUANTITY);
 
-  // 언제 관람할지. 공연이면 회차를, 전시면 날짜를 고른다(둘 중 하나만 쓰인다).
+  // 언제 관람할지. 회차형만 고른다 — 날짜를 고르고 그날의 회차를 고른다.
+  // 기간형은 오픈 데이트라 고를 게 없어서 둘 다 쓰이지 않는다.
   // 처음엔 아무것도 안 골라둔다 — 실수로 엉뚱한 회차를 예매하는 걸 막으려고, 직접 고르게 한다.
   const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -119,8 +101,9 @@ export default function CheckoutScreen() {
     );
   }
 
-  // 기간형인가 회차형인가 — 둘 다 달력으로 날짜를 고르고,
-  // 회차형은 날짜를 고른 다음 그날의 회차(시간)를 한 번 더 고른다.
+  // 기간형인가 회차형인가.
+  //  - 기간형: 오픈 데이트. 고르는 단계가 없고 기간만 알려준다
+  //  - 회차형: 달력에서 날짜를 고르고, 그다음 그날의 회차(시간)를 한 번 더 고른다
   //
   // 종료일이 아니라 **회차 유무**로 가른다(data/events.ts의 isPeriodBased).
   // 그래서 시간지정 입장 전시(종료일도 있고 회차도 있는 전시)는 회차를 고르는 쪽으로 간다.
@@ -137,34 +120,27 @@ export default function CheckoutScreen() {
     schedules.filter((s) => s.remaining > 0).map((s) => toDateKey(s.startsAt))
   );
 
-  // 고를 수 있는 날짜 범위
-  //  - 전시: 오늘(또는 전시 시작일) ~ 전시 종료일
-  //  - 공연: 남은 첫 회차의 날 ~ 남은 마지막 회차의 날
-  const minPickDate = isExhibition
-    ? earliestVisitDate(event, now)
-    : schedules.length > 0
-      ? startOfDay(schedules[0].startsAt)
-      : null;
-  const maxPickDate = isExhibition
-    ? startOfDay(event.showEndAt!)
-    : schedules.length > 0
-      ? startOfDay(schedules[schedules.length - 1].startsAt)
-      : null;
+  // 달력에서 고를 수 있는 날짜 범위 (회차형만 쓴다 — 기간형은 달력이 없다)
+  // 남은 첫 회차의 날 ~ 남은 마지막 회차의 날
+  const minPickDate = schedules.length > 0 ? startOfDay(schedules[0].startsAt) : null;
+  const maxPickDate =
+    schedules.length > 0 ? startOfDay(schedules[schedules.length - 1].startsAt) : null;
 
-  // 고를 날이 하루라도 남았는가. 전시는 마지막 날 18시가 지나면 기간이 안 끝났어도 갈 날이 없고,
-  // 공연은 남은 회차가 없으면 고를 날도 없다.
-  const canPickDate = !!minPickDate && !!maxPickDate && minPickDate <= maxPickDate;
+  // 고를 날이 하루라도 남았는가. 기간형은 고를 날이라는 개념이 없어서 항상 참으로 둔다
+  // (실제로 살 수 있는지는 아래 isBookable이 종료일로 판단한다).
+  const canPickDate = isExhibition || (!!minPickDate && !!maxPickDate && minPickDate <= maxPickDate);
 
   // 공연에서 "고른 날짜"에 열리는 회차들 (보통 1~2개). 날짜를 안 골랐으면 빈 배열.
   const schedulesOnSelectedDate = selectedDate
     ? schedules.filter((s) => isSameDay(s.startsAt, selectedDate))
     : [];
 
-  // 내가 실제로 관람할 시각 — 고른 회차/날짜에서 나온다. 아직 안 골랐으면 없다.
-  const whenText = selectedSchedule
-    ? formatDateTime(selectedSchedule.startsAt)
-    : selectedDate
-      ? formatDate(selectedDate)
+  // 영수증·확인 문구에 쓸 "언제" 표기.
+  // 기간형은 고른 날이 없어서 기간을 그대로 보여준다(오픈 데이트라 그게 정확한 표현이다).
+  const whenText = isExhibition
+    ? `${formatDate(event.showAt)} ~ ${formatDate(event.showEndAt!)} 중 하루`
+    : selectedSchedule
+      ? formatDateTime(selectedSchedule.startsAt)
       : '선택 전';
 
   // 목록에서 걸러지지만, 화면을 열어둔 사이 공연 시각이 지나거나 딥링크로 바로 들어올 수 있어
@@ -172,7 +148,8 @@ export default function CheckoutScreen() {
   const bookable = isBookable(event, now) && canPickDate;
 
   // 관람일(공연이면 회차까지)을 골랐는가. 안 골랐으면 결제 버튼을 막는다.
-  const whenChosen = isExhibition ? !!selectedDate : !!selectedSchedule;
+  // 기간형은 오픈 데이트라 고를 게 없다 — 언제나 결제할 수 있다.
+  const whenChosen = isExhibition ? true : !!selectedSchedule;
 
   // 고를 수 있는 인원 상한. 전시는 정원이 없어서 그대로 4매, 공연은 그 회차에 남은 좌석까지만.
   // (남은 자리보다 많이 고를 수 있게 두면, 결제 버튼을 눌러야 서버가 거절해서 헛걸음이 된다)
@@ -215,14 +192,14 @@ export default function CheckoutScreen() {
 
     setIsSubmitting(true);
     try {
-      // 서버에 "무엇을·몇 매·어떤 쿠폰으로·언제"만 넘긴다. 관람 시각·금액 계산과 쿠폰 사용완료 처리,
-      // 고른 회차/날짜가 올바른지 확인하는 것까지 전부 create_booking 함수가 한 트랜잭션에서 처리한다.
+      // 서버에 "무엇을·몇 매·어떤 쿠폰으로·어느 회차로"만 넘긴다. 관람 시각·금액 계산과 쿠폰
+      // 사용완료 처리, 고른 회차가 올바른지 확인하는 것까지 전부 create_booking이 한 트랜잭션에서 한다.
+      // 기간형은 회차가 없어서 아무것도 안 보낸다 — 서버가 기간 마지막 날 18시를 관람 시각으로 둔다.
       await createBooking({
         eventId: event.id,
         quantity,
         couponId: couponApplied ? usableCoupon!.id : null,
         scheduleId: selectedSchedule?.id ?? null,
-        visitDate: selectedDate ? toDateKey(selectedDate) : null,
       });
     } catch (error) {
       setIsSubmitting(false);
@@ -264,30 +241,45 @@ export default function CheckoutScreen() {
           <GenreBadge genre={event.genre} />
         </View>
 
-        {/* 1단계: 관람일 고르기 (전시·공연 공통, 달력) */}
-        <View style={styles.whenBlock}>
-          <Text style={[styles.sectionLabel, { color: theme.text }]}>관람일</Text>
-          <Text style={[styles.sectionHint, { color: theme.textSecondary }]}>
-            {isExhibition
-              ? `${formatDate(event.showAt)} ~ ${formatDate(event.showEndAt!)} 중 하루를 고르세요`
-              : '공연이 있는 날만 고를 수 있어요'}
-          </Text>
-        </View>
-
-        {canPickDate ? (
-          <DateCalendar
-            minDate={minPickDate!}
-            maxDate={maxPickDate!}
-            selected={selectedDate}
-            onSelect={handleSelectDate}
-            theme={theme}
-            // 전시는 기간 안 아무 날이나 가능해서 안 넘긴다. 공연은 회차가 있는 날만.
-            availableDates={isExhibition ? undefined : scheduleDateKeys}
-          />
+        {/* 1단계: 언제 갈지 정하기.
+            기간형은 오픈 데이트라 고를 게 없다 — 기간만 알려주고 달력을 띄우지 않는다.
+            회차형만 달력에서 날짜를 고르고, 그다음 그날의 회차를 고른다. */}
+        {isExhibition ? (
+          <View style={[styles.openDateCard, { backgroundColor: theme.emptyCellBackground }]}>
+            <Text style={[styles.sectionLabel, { color: theme.text }]}>기간 안에 아무 때나</Text>
+            <Text style={[styles.sectionHint, { color: theme.textSecondary }]}>
+              {formatDate(event.showAt)} ~ {formatDate(event.showEndAt!)} 중 편한 날 다녀오세요.
+              날짜를 미리 고르지 않아요.
+            </Text>
+            <Text style={[styles.sectionHint, { color: theme.textSecondary }]}>
+              다녀온 뒤 예매 상세에서 &apos;관람했어요&apos;를 누르면 여권에 스탬프가 찍혀요.
+              기간 안에 안 쓰면 만료돼요.
+            </Text>
+          </View>
         ) : (
-          <Text style={[styles.emptyWhen, { color: theme.textSecondary }]}>
-            {isExhibition ? '관람할 수 있는 날이 남지 않았어요.' : '예매할 수 있는 회차가 남지 않았어요.'}
-          </Text>
+          <>
+            <View style={styles.whenBlock}>
+              <Text style={[styles.sectionLabel, { color: theme.text }]}>관람일</Text>
+              <Text style={[styles.sectionHint, { color: theme.textSecondary }]}>
+                공연이 있는 날만 고를 수 있어요
+              </Text>
+            </View>
+
+            {canPickDate ? (
+              <DateCalendar
+                minDate={minPickDate!}
+                maxDate={maxPickDate!}
+                selected={selectedDate}
+                onSelect={handleSelectDate}
+                theme={theme}
+                availableDates={scheduleDateKeys}
+              />
+            ) : (
+              <Text style={[styles.emptyWhen, { color: theme.textSecondary }]}>
+                예매할 수 있는 회차가 남지 않았어요.
+              </Text>
+            )}
+          </>
         )}
 
         {/* 2단계: 공연은 고른 날짜의 회차(시간)를 한 번 더 고른다. 전시는 이 단계가 없다. */}
@@ -615,6 +607,12 @@ const styles = StyleSheet.create({
   whenBlock: {
     paddingHorizontal: 4,
     gap: 4,
+  },
+  // 기간형(오픈 데이트) 안내 카드. 달력이 들어가던 자리를 대신한다
+  openDateCard: {
+    borderRadius: 16, // 일반 정보 카드 radius
+    padding: 12,
+    gap: 6,
   },
   sectionHint: {
     fontFamily: Fonts.regular,

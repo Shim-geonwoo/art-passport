@@ -33,6 +33,9 @@ const BOOKING_STATUS_COLOR: Record<BookingStatus, string> = {
   예매완료: Colors.blue,
   관람완료: Colors.navy,
   취소: Colors.textSecondary,
+  // 만료: 기간 안에 안 쓰고 흘려보낸 티켓. 취소와 같은 회색을 쓴다 —
+  // 둘 다 "이 표로는 더 아무 일도 일어나지 않는다"는 뜻이라 굳이 색을 나눌 이유가 없다.
+  만료: Colors.textSecondary,
 };
 
 // 상태 필터 선택지. '전체'는 굳이 안 보여줘도 되어서 뺐다 — 3개가 한 줄에 다 들어간다.

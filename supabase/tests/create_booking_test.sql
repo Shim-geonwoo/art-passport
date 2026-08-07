@@ -16,7 +16,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(24);
+select plan(28);
 
 -- ── 픽스처 ────────────────────────────────────────────────
 -- auth.users에 넣으면 handle_new_user 트리거가 public.users 프로필을 자동으로 만들어준다.
@@ -68,7 +68,7 @@ set local request.jwt.claims = '';
 
 select throws_ok(
   $$ select create_booking('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 1, null,
-                           'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid, null) $$,
+                           'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid) $$,
   '42501'::char(5),
   '로그인이 필요합니다.',
   '로그인하지 않으면 예매를 만들 수 없다'
@@ -80,7 +80,7 @@ set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","r
 -- ── 2~4. 입력값 검증 ──────────────────────────────────────
 select throws_ok(
   $$ select create_booking('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 0, null,
-                           'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid, null) $$,
+                           'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid) $$,
   '22023'::char(5),
   '인원은 1~4매까지 선택할 수 있습니다.',
   '0매는 예매할 수 없다'
@@ -88,7 +88,7 @@ select throws_ok(
 
 select throws_ok(
   $$ select create_booking('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 5, null,
-                           'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid, null) $$,
+                           'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid) $$,
   '22023'::char(5),
   '인원은 1~4매까지 선택할 수 있습니다.',
   '상한(4매)을 넘겨 예매할 수 없다'
@@ -96,7 +96,7 @@ select throws_ok(
 
 select throws_ok(
   $$ select create_booking('99999999-9999-9999-9999-999999999999'::uuid, 1, null,
-                           'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid, null) $$,
+                           'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid) $$,
   'P0002'::char(5),
   '공연 정보를 찾을 수 없습니다.',
   '없는 공연은 예매할 수 없다'
@@ -104,7 +104,7 @@ select throws_ok(
 
 -- ── 5. 공연인데 회차를 안 골랐다 ──────────────────────────
 select throws_ok(
-  $$ select create_booking('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 1, null, null, null) $$,
+  $$ select create_booking('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 1, null, null) $$,
   '22023'::char(5),
   '관람 회차를 선택해주세요.',
   '공연은 회차를 골라야 예매할 수 있다'
@@ -114,7 +114,7 @@ select throws_ok(
 -- 여기가 뚫리면 "과거 관람"을 만들어 스탬프를 즉시 찍을 수 있다(= 쿠폰 발급 권한).
 select throws_ok(
   $$ select create_booking('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 1, null,
-                           'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'::uuid, null) $$,
+                           'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'::uuid) $$,
   '22023'::char(5),
   '이미 지난 일정은 예매할 수 없습니다.',
   '지난 회차로 예매해서 스탬프를 즉시 만들 수 없다'
@@ -124,7 +124,7 @@ select throws_ok(
 -- 클라이언트는 금액을 아예 보내지 않는다. events.price x 매수가 그대로 찍혀야 한다.
 insert into made
 select 'plain', create_booking('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 2, null,
-                               'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid, null);
+                               'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid);
 
 select is(
   (select original_price from bookings where id = (select booking_id from made where label = 'plain')),
@@ -142,7 +142,7 @@ select is(
 insert into made
 select 'coupon', create_booking('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 1,
                                 'f1111111-1111-1111-1111-111111111111'::uuid,
-                                'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid, null);
+                                'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid);
 
 select is(
   (select total_price from bookings where id = (select booking_id from made where label = 'coupon')),
@@ -162,7 +162,7 @@ select is(
 select throws_ok(
   $$ select create_booking('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 1,
                            'f1111111-1111-1111-1111-111111111111'::uuid,
-                           'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid, null) $$,
+                           'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid) $$,
   '22023'::char(5),
   '사용할 수 없는 쿠폰입니다. (사용 완료됐거나 기간이 지났어요)',
   '이미 쓴 쿠폰은 다시 쓸 수 없다'
@@ -172,7 +172,7 @@ select throws_ok(
 select throws_ok(
   $$ select create_booking('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 1,
                            'f2222222-2222-2222-2222-222222222222'::uuid,
-                           'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid, null) $$,
+                           'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid) $$,
   '22023'::char(5),
   '사용할 수 없는 쿠폰입니다. (사용 완료됐거나 기간이 지났어요)',
   '남의 쿠폰은 id를 알아도 쓸 수 없다'
@@ -189,7 +189,7 @@ select is(
 -- 2석짜리 회차를 2매로 정확히 채운다
 insert into made
 select 'sellout', create_booking('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 2, null,
-                                 'dddddddd-dddd-dddd-dddd-dddddddddddd'::uuid, null);
+                                 'dddddddd-dddd-dddd-dddd-dddddddddddd'::uuid);
 
 select is(
   (select sold_count from event_schedules where id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'),
@@ -199,7 +199,7 @@ select is(
 
 select throws_ok(
   $$ select create_booking('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 1, null,
-                           'dddddddd-dddd-dddd-dddd-dddddddddddd'::uuid, null) $$,
+                           'dddddddd-dddd-dddd-dddd-dddddddddddd'::uuid) $$,
   '22023'::char(5),
   '매진된 회차입니다.',
   '정원을 다 팔면 한 장도 더 팔지 않는다'
@@ -217,30 +217,33 @@ select is(
 -- ── 16. 남은 자리보다 많이 요구하면 몇 석 남았는지 알려준다 ──
 insert into made
 select 'one', create_booking('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 1, null,
-                             'dddddddd-dddd-dddd-dddd-dddddddddddd'::uuid, null);
+                             'dddddddd-dddd-dddd-dddd-dddddddddddd'::uuid);
 
 select throws_ok(
   $$ select create_booking('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 2, null,
-                           'dddddddd-dddd-dddd-dddd-dddddddddddd'::uuid, null) $$,
+                           'dddddddd-dddd-dddd-dddd-dddddddddddd'::uuid) $$,
   '22023'::char(5),
   '남은 좌석이 1석뿐이에요.',
   '남은 자리보다 많이 요구하면 몇 석 남았는지 알려준다'
 );
 
--- ── 17~18. 전시(기간형) ───────────────────────────────────
-select throws_ok(
-  $$ select create_booking('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid, 1, null, null, null) $$,
-  '22023'::char(5),
-  '관람일을 선택해주세요.',
-  '전시는 관람일을 골라야 예매할 수 있다'
+-- ── 17~18. 전시(기간형, 오픈 데이트) ─────────────────────
+-- 고를 것이 없다. 그냥 사면 되고, 관람 시각은 비어 있다 — 전시장에서 티켓을 써야 채워진다.
+-- 이게 이 규칙의 핵심이다: **안 갔으면 기록이 남지 않는다.**
+-- 기간이 끝났다고 자동으로 관람 처리하면 가지도 않은 전시가 여권에 스탬프로 찍힌다.
+insert into made
+select 'openDate', create_booking('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid, 1, null, null);
+
+select is(
+  (select watched_at from bookings where id = (select booking_id from made where label = 'openDate')),
+  null::timestamptz,
+  '기간형은 날짜를 안 고르고, 관람 시각은 비어 있다'
 );
 
-select throws_ok(
-  $$ select create_booking('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid, 1, null, null,
-                           (now() + interval '100 days')::date) $$,
-  '22023'::char(5),
-  '전시 기간 안의 날짜를 선택해주세요.',
-  '전시 기간 밖의 날짜는 고를 수 없다'
+select is(
+  (select schedule_id from bookings where id = (select booking_id from made where label = 'openDate')),
+  null::uuid,
+  '기간형은 회차가 없다'
 );
 
 -- ── 19. 회차도 종료일도 없으면 팔 방법이 없다 ─────────────
@@ -251,7 +254,7 @@ values ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '회차 없는 공연', '연극'
         now() + interval '10 days', null, 30000, '테스트 소극장');
 
 select throws_ok(
-  $$ select create_booking('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'::uuid, 1, null, null, null) $$,
+  $$ select create_booking('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'::uuid, 1, null, null) $$,
   '22023'::char(5),
   '아직 예매할 수 없는 공연입니다.',
   '회차도 종료일도 없으면 무엇을 골라도 예매할 수 없다'
@@ -280,7 +283,7 @@ select throws_ok(
 -- 그 문장의 스냅샷에 없어서 NULL이 나온다.
 insert into made
 select 'exhibition-session', create_booking('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid, 1, null,
-                                            'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid, null);
+                                            'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid);
 
 select is(
   (
@@ -301,7 +304,7 @@ update events set is_hidden = true where id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaa
 
 select throws_ok(
   $$ select create_booking('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid, 1, null,
-                           'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid, null) $$,
+                           'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid) $$,
   '22023'::char(5),
   '지금은 예매할 수 없는 공연입니다.',
   '내린 공연은 회차가 남아 있어도 팔지 않는다'
@@ -312,6 +315,48 @@ select throws_ok(
 select lives_ok(
   $$ select cancel_booking((select booking_id from made where label = 'plain')) $$,
   '내린 공연이라도 이미 산 표는 취소할 수 있다'
+);
+
+-- ── 25~28. mark_ticket_used: 티켓을 써야 관람이 된다 ──────
+--
+-- 위 17~18에서 만든 오픈 데이트 예매('openDate')를 쓴다. 그 전시는 어제 시작해서 30일 뒤
+-- 끝나므로 지금 쓸 수 있는 상태다.
+
+-- 남의 티켓은 id를 알아도 못 쓴다. 여기가 뚫리면 남의 예매를 관람 처리해 버릴 수 있다.
+set local request.jwt.claims = '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}';
+
+select throws_ok(
+  format($$ select mark_ticket_used(%L::uuid) $$,
+         (select booking_id from made where label = 'openDate')),
+  'P0002'::char(5),
+  '예매 정보를 찾을 수 없습니다.',
+  '남의 티켓은 id를 알아도 쓸 수 없다'
+);
+
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}';
+
+-- 회차형은 쓸 대상이 아니다. 관람 시각이 이미 회차로 정해져 있다.
+-- ('plain'은 위 24번에서 취소해서 다른 오류에 먼저 걸린다 — 취소 안 한 'coupon'을 쓴다)
+select throws_ok(
+  format($$ select mark_ticket_used(%L::uuid) $$,
+         (select booking_id from made where label = 'coupon')),
+  '22023'::char(5),
+  '이미 사용한 티켓입니다.',
+  '관람 시각이 이미 있는 예매는 다시 쓸 수 없다'
+);
+
+-- 정상 사용: 관람 시각이 지금으로 채워진다. 클라이언트는 시각을 보내지 않는다 —
+-- 보낼 수 있으면 과거 시각을 적어 스탬프를 즉시 만들어낼 수 있다(= 쿠폰 발급 권한).
+select lives_ok(
+  format($$ select mark_ticket_used(%L::uuid) $$,
+         (select booking_id from made where label = 'openDate')),
+  '기간 안의 오픈 데이트 티켓은 쓸 수 있다'
+);
+
+select ok(
+  (select watched_at from bookings where id = (select booking_id from made where label = 'openDate'))
+    is not null,
+  '티켓을 쓰면 관람 시각이 채워진다'
 );
 
 select * from finish();
