@@ -269,11 +269,10 @@ values ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbb
         now() + interval '5 days', 10, 0);
 
 select throws_ok(
-  $$ select create_booking('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid, 1, null, null,
-                           (now() + interval '3 days')::date) $$,
+  $$ select create_booking('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid, 1, null, null) $$,
   '22023'::char(5),
   '관람 회차를 선택해주세요.',
-  '회차가 생긴 전시는 기간 안의 날짜만으로는 예매할 수 없다'
+  '회차가 생긴 전시는 회차를 골라야 예매할 수 있다'
 );
 
 -- 회차로 사면 관람 시각이 그 회차 시각이 된다(기간형의 "그날 18시"가 아니라).
