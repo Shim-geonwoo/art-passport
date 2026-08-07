@@ -23,7 +23,7 @@ import { useBookings } from '@/contexts/bookings';
 import { useEvents } from '@/contexts/events';
 import { createBooking } from '@/data/bookings';
 import { isCouponUsable } from '@/data/coupons';
-import { EventItem, isBookable, upcomingSchedules } from '@/data/events';
+import { EventItem, isBookable, isPeriodBased, upcomingSchedules } from '@/data/events';
 import {
   formatDate,
   formatDateTime,
@@ -119,9 +119,13 @@ export default function CheckoutScreen() {
     );
   }
 
-  // 전시(기간형)인가 공연(회차형)인가 — 둘 다 달력으로 날짜를 고르고,
-  // 공연은 날짜를 고른 다음 그날의 회차(시간)를 한 번 더 고른다.
-  const isExhibition = !!event.showEndAt;
+  // 기간형인가 회차형인가 — 둘 다 달력으로 날짜를 고르고,
+  // 회차형은 날짜를 고른 다음 그날의 회차(시간)를 한 번 더 고른다.
+  //
+  // 종료일이 아니라 **회차 유무**로 가른다(data/events.ts의 isPeriodBased).
+  // 그래서 시간지정 입장 전시(종료일도 있고 회차도 있는 전시)는 회차를 고르는 쪽으로 간다.
+  // create_booking도 같은 순서로 가르므로 화면과 서버의 판단이 어긋나지 않는다.
+  const isExhibition = isPeriodBased(event);
 
   // 공연: 아직 안 지난 회차만 고를 수 있다.
   const schedules = upcomingSchedules(event, now);

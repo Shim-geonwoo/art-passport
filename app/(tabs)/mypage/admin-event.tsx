@@ -63,6 +63,25 @@ function notify(title: string, message: string) {
 // 그래도 timestamp 칸이라 시각이 필요해서, 저녁 공연이 가장 흔한 점을 따라 19:00으로 채운다.
 const DEFAULT_HOUR = '19:00';
 
+// 날짜 칸에 친 글자를 'YYYY-MM-DD' 모양으로 다듬는다. 숫자만 치면 '-'가 알아서 들어간다.
+//
+// 왜 필요한가: 관리자는 날짜를 문서에서 옮겨 적는데, 그때 손이 치는 건 숫자 8개다.
+// '-'를 직접 치게 하면 자판을 오가야 하고(모바일에서는 숫자판에 '-'가 없는 경우도 있다),
+// 빠뜨리면 저장할 때가 되어서야 형식이 틀렸다고 걸린다.
+//
+// 숫자가 아닌 글자는 전부 버린다. 그래서 붙여넣기('2026-08-14', '2026.08.14')도 같은 결과가 되고,
+// 지울 때는 '-'가 다시 붙지 않는다 — 숫자가 그만큼 남아 있을 때만 넣기 때문이다.
+function formatDateInput(text: string): string {
+  const digits = text.replace(/\D/g, '').slice(0, 8); // YYYYMMDD = 8자리
+  if (digits.length <= 4) {
+    return digits;
+  }
+  if (digits.length <= 6) {
+    return `${digits.slice(0, 4)}-${digits.slice(4)}`;
+  }
+  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`;
+}
+
 export default function AdminEventEditScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const isNew = !id;
@@ -196,13 +215,14 @@ export default function AdminEventEditScreen() {
       if (isNew) {
         const newId = await createAdminEvent(result.input);
         await refreshCatalog();
-        // 새로 만든 공연은 아직 회차가 없어서 예매 탭에 안 뜬다. 그 사실을 여기서 알려준다 —
-        // 목록으로 돌아가 '회차 없음' 뱃지를 보고서야 알게 되면 등록이 실패한 줄 안다.
+        // 새로 만든 것은 회차가 하나도 없다. 종료일을 적었으면 기간형으로 곧장 팔리지만,
+        // 안 적었으면 파는 방법이 없어서 예매 탭에 안 뜬다 — 목록으로 돌아가 '회차 없음' 뱃지를
+        // 보고서야 알게 되면 등록이 실패한 줄 안다.
         notify(
           '등록했어요',
           result.input.showEndAt
-            ? '전시가 등록됐어요.'
-            : '공연이 등록됐어요. 회차를 추가해야 예매 탭에 보입니다.'
+            ? '등록됐어요. 기간 안에서 관람일을 고르는 방식으로 팔려요.'
+            : '등록됐어요. 회차를 추가해야 예매 탭에 보입니다.'
         );
         // 방금 만든 공연의 편집 화면으로 갈아탄다(뒤로가기가 빈 등록 화면으로 돌아가지 않게)
         router.replace({ pathname: '/mypage/admin-event', params: { id: newId } });
@@ -307,7 +327,17 @@ export default function AdminEventEditScreen() {
     );
   }
 
-  const isExhibition = endDate.trim().length > 0;
+  // 지금 이 공연이 팔리는 방식. data/events.ts의 isSessionBased / isPeriodBased와 같은 순서다.
+  //
+  // 회차 수는 저장된 값(scheduleCount)을 보고, 종료일은 아직 저장 안 한 입력칸을 본다.
+  // 종료일을 지우자마자 아래 안내가 따라 바뀌어야 하기 때문이다 — 저장해야 알 수 있으면
+  // 무엇이 달라지는지 모른 채로 저장하게 된다.
+  const sellingMode: 'session' | 'period' | 'none' =
+    scheduleCount !== null && scheduleCount > 0
+      ? 'session'
+      : endDate.trim().length > 0
+        ? 'period'
+        : 'none';
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top']}>
@@ -353,18 +383,23 @@ export default function AdminEventEditScreen() {
           </View>
         </View>
 
-        {/* 종류: 종료일 유무로 갈린다. 무엇이 달라지는지 화면에서 바로 알려준다 */}
+        {/* 지금 이 공연이 어떻게 팔리는가.
+            회차가 있으면 회차형, 없고 종료일이 있으면 기간형, 둘 다 없으면 아직 못 판다.
+            장르나 종료일이 아니라 회차 유무가 정한다(create_booking도 같은 순서로 가른다) */}
         <View style={[styles.typeCard, { backgroundColor: theme.emptyCellBackground }]}>
           <Text style={[styles.typeLabel, { color: theme.text }]}>
-            {isExhibition ? '전시 (기간형)' : '공연 (회차형)'}
+            {sellingMode === 'session'
+              ? '회차형 — 회차를 골라서 산다'
+              : sellingMode === 'period'
+                ? '기간형 — 기간 안에서 관람일을 고른다'
+                : '아직 팔 수 없음'}
           </Text>
           <Text style={[styles.typeHint, { color: theme.textSecondary }]}>
-            {isExhibition
-              ? '기간 안에서 관람일을 고른다. 정원이 없어 무제한으로 팔린다.'
-              : '회차를 만들어야 예매할 수 있다. 회차마다 정원이 있다.'}
-          </Text>
-          <Text style={[styles.typeHint, { color: theme.textSecondary }]}>
-            종료일을 비우면 공연, 적으면 전시가 된다.
+            {sellingMode === 'session'
+              ? '회차마다 정원이 있다. 회차를 전부 지우면 기간형으로 돌아간다.'
+              : sellingMode === 'period'
+                ? '정원이 없어 무제한으로 팔린다. 회차를 만들면 시간을 지정해 파는 방식이 된다.'
+                : '회차를 만들거나 종료일을 적어야 예매 탭에 보인다.'}
           </Text>
         </View>
 
@@ -411,21 +446,22 @@ export default function AdminEventEditScreen() {
           placeholder="120000"
           keyboardType="number-pad"
         />
+        {/* 날짜 두 칸은 숫자만 받는다 — '-'는 formatDateInput이 넣는다 */}
         <Field
           label="시작일"
           value={startDate}
-          onChangeText={setStartDate}
+          onChangeText={(text) => setStartDate(formatDateInput(text))}
           theme={theme}
-          placeholder="2026-08-14"
-          keyboardType={Platform.OS === 'web' ? 'default' : 'numbers-and-punctuation'}
+          placeholder="20260814 → 2026-08-14"
+          keyboardType="number-pad"
         />
         <Field
           label="종료일 (전시만)"
           value={endDate}
-          onChangeText={setEndDate}
+          onChangeText={(text) => setEndDate(formatDateInput(text))}
           theme={theme}
           placeholder="비우면 공연"
-          keyboardType={Platform.OS === 'web' ? 'default' : 'numbers-and-punctuation'}
+          keyboardType="number-pad"
         />
 
         {/* 소개글. 시드 50건이 전부 비어 있어서 상세 화면에 "준비 중"만 뜬다 — 여기가 그걸 채우는 자리 */}
@@ -463,19 +499,13 @@ export default function AdminEventEditScreen() {
           </View>
         ) : null}
 
-        <Pressable
-          style={[styles.saveButton, isSaving && styles.saveButtonDisabled]}
-          onPress={handleSave}
-          disabled={isSaving}>
-          <Text style={styles.saveButtonText}>
-            {isSaving ? '저장 중...' : isNew ? '등록하기' : '저장하기'}
-          </Text>
-        </Pressable>
-
-        {/* 회차 관리로 가는 입구. 저장 버튼 아래에 두는 건 순서를 뜻한다 —
-            여기서 화면을 옮기면 아직 저장 안 한 입력이 사라진다.
-            전시는 회차가 없어서 이 줄 자체를 두지 않는다. 새 공연은 아직 id가 없어 갈 곳이 없다 */}
-        {!isNew && !isExhibition ? (
+        {/* 회차 관리로 가는 입구. 장르나 종료일과 무관하게 항상 둔다 —
+            회차를 만드는 행위가 곧 파는 방식을 정하는 것이라, 전시에도 열려 있어야 한다.
+            내리기 카드와 나란히 두고 저장 버튼을 그 아래에 둔다. 둘 다 "이 공연에 딸린 것"을
+            다루는 줄이라 같은 자리에 모이는 편이 찾기 쉽다.
+            다만 여기서 화면을 옮기면 아직 저장 안 한 입력이 사라지므로 문구에 적어둔다.
+            새 공연만 예외다 — 아직 id가 없어서 회차를 붙일 곳이 없다 */}
+        {!isNew ? (
           <Pressable
             style={[styles.linkCard, { backgroundColor: theme.emptyCellBackground }]}
             onPress={() => router.push({ pathname: '/mypage/admin-schedules', params: { id } })}
@@ -485,14 +515,25 @@ export default function AdminEventEditScreen() {
                 회차 관리{scheduleCount === null ? '' : ` · ${scheduleCount}개`}
               </Text>
               <Text style={[styles.hiddenHint, { color: theme.textSecondary }]}>
-                {scheduleCount === 0
-                  ? '회차가 없어서 예매 탭에 안 보여요. 회차를 추가해주세요.'
-                  : '회차 날짜·시각과 정원을 여기서 고쳐요. 저장하지 않은 내용은 사라져요.'}
+                {sellingMode === 'session'
+                  ? '회차 날짜·시각과 정원을 여기서 고쳐요. 저장하지 않은 내용은 사라져요.'
+                  : sellingMode === 'period'
+                    ? '회차를 만들면 시간을 지정해 파는 방식으로 바뀌어요.'
+                    : '회차가 없어서 예매 탭에 안 보여요. 회차를 추가해주세요.'}
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
           </Pressable>
         ) : null}
+
+        <Pressable
+          style={[styles.saveButton, isSaving && styles.saveButtonDisabled]}
+          onPress={handleSave}
+          disabled={isSaving}>
+          <Text style={styles.saveButtonText}>
+            {isSaving ? '저장 중...' : isNew ? '등록하기' : '저장하기'}
+          </Text>
+        </Pressable>
       </ScrollView>
     </SafeAreaView>
   );

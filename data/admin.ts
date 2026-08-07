@@ -104,19 +104,22 @@ export function catalogVisibility(event: AdminEventItem, now: Date = new Date())
     return { visible: false, reason: '숨김' };
   }
 
+  // 판단 순서는 data/events.ts의 isBookable, 그리고 create_booking과 같다.
+  // 회차가 있으면 회차형 — 종료일이 있어도(시간지정 입장 전시) 회차 쪽을 본다.
+  if (event.scheduleCount > 0) {
+    return event.upcomingScheduleCount === 0
+      ? { visible: false, reason: '남은 회차 없음' }
+      : { visible: true, reason: null };
+  }
+
   if (event.showEndAt) {
-    // 전시(기간형): 종료일이 안 지났으면 보인다 (data/events.ts의 isBookable과 같은 규칙)
+    // 기간형: 종료일이 안 지났으면 보인다
     const ended = event.showEndAt.getTime() < now.getTime();
     return ended ? { visible: false, reason: '전시 종료' } : { visible: true, reason: null };
   }
 
-  if (event.scheduleCount === 0) {
-    return { visible: false, reason: '회차 없음' };
-  }
-  if (event.upcomingScheduleCount === 0) {
-    return { visible: false, reason: '남은 회차 없음' };
-  }
-  return { visible: true, reason: null };
+  // 회차도 종료일도 없다 — 파는 방법이 정해지지 않아 예매 탭에 뜨지 않는다
+  return { visible: false, reason: '회차 없음' };
 }
 
 // 편집 화면 하나만 다시 불러온다 (저장 직후 화면을 최신으로 맞출 때)

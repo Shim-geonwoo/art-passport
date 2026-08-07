@@ -10,9 +10,9 @@ import { Genre } from '@/constants/colors';
 import { formatDate, formatDateTime, startOfToday } from '@/data/schedule';
 import { supabase } from '@/lib/supabase';
 
-// 공연 회차 하나 (event_schedules 테이블의 한 행).
-// 전시(기간형)는 정해진 시각이 없어서 회차를 만들지 않는다 → schedules가 빈 배열이다.
-// 정원(capacity)도 회차에만 있으므로, 회차가 없는 전시는 자연히 무제한이 된다.
+// 회차 하나 (event_schedules 테이블의 한 행).
+// 회차가 없으면(빈 배열) 기간형이다 — 기간 안에서 날짜를 고르고 정원이 없다.
+// 정원(capacity)은 회차에만 있으므로, 회차가 없으면 자연히 무제한이 된다.
 export type EventSchedule = {
   id: string;
   startsAt: Date;
@@ -28,11 +28,14 @@ export type EventItem = {
   genre: Genre;
   venueName: string;
   price: number;
-  showAt: Date; // 회차형: 첫 회차 일시 / 기간형(전시): 전시 시작일
-  showEndAt: Date | null; // 기간형(전시)만 값이 있음. null이면 회차형(공연)
+  showAt: Date; // 시작일. 카탈로그 정렬 기준이고, 기간형에서는 고를 수 있는 첫 날이기도 하다
+  // 기간형으로 팔 때 쓰는 종료일. 회차가 하나라도 있으면 회차형이라 이 값은 예매에 쓰이지 않는다
+  showEndAt: Date | null;
   posterUrl: string | null;
   description: string | null;
-  schedules: EventSchedule[]; // 회차형(공연)의 회차 목록, 이른 순. 전시는 빈 배열
+  // 회차 목록, 이른 순. **이 배열이 비어 있지 않으면 회차형이다**(isSessionBased).
+  // 종료일이 있는 전시라도 회차를 만들면 회차형이 된다 — 시간지정 입장 전시가 그 경우다.
+  schedules: EventSchedule[];
 };
 
 // Supabase events 테이블 row의 생 형태(snake_case). bookings 조회 시 조인된 event도 이 형태로 온다.
@@ -105,28 +108,59 @@ export function bookableSchedules(event: EventItem, now: Date = new Date()): Eve
   return upcomingSchedules(event, now).filter((s) => s.remaining > 0);
 }
 
+// 이 이벤트를 무엇으로 파는가 — 회차를 골라 사는가, 기간 안의 날짜를 골라 사는가.
+//
+// **회차가 있으면 회차형이다.** 종료일이나 장르가 아니라 회차 유무가 정한다
+// (20260807103000_schedules_decide_type.sql — create_booking도 같은 순서로 가른다).
+//
+// 이 순서라서 시간지정 입장 전시(30분 단위로 인원을 끊어 받는 전시)를 표현할 수 있다.
+// 종료일이 있는 전시에 회차를 만들면 회차형이 되고, 회차를 다 지우면 다시 기간형으로 돌아간다.
+// 관리자가 회차를 만드는 행위 자체가 파는 방식을 정한다.
+export function isSessionBased(event: EventItem): boolean {
+  return event.schedules.length > 0;
+}
+
+// 기간 안에서 날짜만 고르는 방식인가. 회차가 없고 종료일이 있을 때만 그렇다.
+// (회차도 종료일도 없으면 둘 다 아니다 = 아직 팔 수 없는 상태)
+export function isPeriodBased(event: EventItem): boolean {
+  return !isSessionBased(event) && !!event.showEndAt;
+}
+
 // 공연 카드/상세에 보여줄 일정 문자열. 둘 다 "언제부터 언제까지"로 읽히게 맞춘다.
-// - 전시(기간형): "2026.08.02 ~ 2026.09.30" (전시 기간)
-// - 공연(회차형, 회차 여러 개): "2026.08.14 ~ 2026.08.20" (첫 회차 ~ 마지막 회차)
-// - 공연(회차형, 회차 하나): "2026.08.14 19:30"
+// - 회차형(회차 여러 개): "2026.08.14 ~ 2026.08.20" (첫 회차 ~ 마지막 회차)
+// - 회차형(회차 하나): "2026.08.14 19:30"
+// - 기간형: "2026.08.02 ~ 2026.09.30" (전시 기간)
+//
+// 회차를 먼저 본다. 회차가 있는 전시라면 실제로 관람하는 날은 회차 쪽이라, 기간을 보여주면
+// 예매 화면에서 고를 수 있는 날짜와 카드에 적힌 기간이 어긋난다.
 export function formatEventSchedule(event: EventItem): string {
+  if (isSessionBased(event)) {
+    if (event.schedules.length > 1) {
+      const last = event.schedules[event.schedules.length - 1];
+      return `${formatDate(event.schedules[0].startsAt)} ~ ${formatDate(last.startsAt)}`;
+    }
+    return formatDateTime(event.schedules[0].startsAt);
+  }
   if (event.showEndAt) {
     return `${formatDate(event.showAt)} ~ ${formatDate(event.showEndAt)}`;
-  }
-  if (event.schedules.length > 1) {
-    const last = event.schedules[event.schedules.length - 1];
-    return `${formatDate(event.schedules[0].startsAt)} ~ ${formatDate(last.startsAt)}`;
   }
   return formatDateTime(event.showAt);
 }
 
 // 지금 이 이벤트를 예매할 수 있는가.
-// - 전시(기간형): 정원이 없으므로, 종료일이 아직 안 지났으면(오늘 포함) 예매 가능.
-// - 공연(회차형): 안 지났고 자리도 남은 회차가 하나라도 있으면 예매 가능.
+// - 회차형: 안 지났고 자리도 남은 회차가 하나라도 있으면 가능.
 //   (첫 회차가 지났거나 매진이어도 뒤 회차가 남았으면 계속 예매할 수 있다)
+// - 기간형: 정원이 없으므로, 종료일이 아직 안 지났으면(오늘 포함) 가능.
+// - 둘 다 아니면(회차도 종료일도 없음): 팔 방법이 정해지지 않아 예매할 수 없다.
+//
+// 판단 순서는 create_booking과 같다. 화면이 "예매 가능"이라고 했는데 서버가 거절하면
+// 누른 사람은 앱이 고장 난 줄 알게 되므로, 두 곳이 같은 순서로 갈라야 한다.
 export function isBookable(event: EventItem, now: Date = new Date()): boolean {
+  if (isSessionBased(event)) {
+    return bookableSchedules(event, now).length > 0;
+  }
   if (event.showEndAt) {
     return startOfToday(event.showEndAt).getTime() >= startOfToday(now).getTime();
   }
-  return bookableSchedules(event, now).length > 0;
+  return false;
 }

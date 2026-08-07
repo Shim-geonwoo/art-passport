@@ -243,24 +243,12 @@ export default function AdminSchedulesScreen() {
     );
   }
 
-  // 전시(기간형)는 회차가 없다. 여기까지 들어왔다면 주소로 직접 온 경우다.
-  if (event.showEndAt) {
-    return (
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top']}>
-        <BackHeader title="회차 관리" color={theme.text} />
-        <Text style={[styles.notice, { color: theme.text }]}>
-          전시는 회차가 없어요. 관람일은 전시 기간 안에서 고르고, 정원도 없어요.
-        </Text>
-      </SafeAreaView>
-    );
-  }
-
   const upcomingCount = schedules.filter((s) => s.startsAt.getTime() > now.getTime()).length;
   const soldTotal = schedules.reduce((sum, s) => sum + s.soldCount, 0);
 
   // 카탈로그 정렬(events.show_at 기준)과 첫 회차가 어긋났는지.
-  // 회차가 하나뿐일 때는 카탈로그 일정 표기도 show_at을 그대로 쓴다(data/events.ts의
-  // formatEventSchedule). 그래서 어긋나면 예매 탭에 실제와 다른 날짜가 뜬다.
+  // 일정 표기는 회차가 있으면 회차를 따라가지만(data/events.ts의 formatEventSchedule), 목록의
+  // 순서는 여전히 show_at을 본다. 어긋나면 예매 탭에서 엉뚱한 자리에 놓인다.
   const first = schedules[0];
   const startMismatch = first && toDateKey(first.startsAt) !== toDateKey(event.showAt);
 
@@ -278,12 +266,29 @@ export default function AdminSchedulesScreen() {
           </Text>
         </View>
 
-        {/* 회차가 하나도 없으면 이 공연은 예매 탭에 아예 안 뜬다. 그 사실을 제일 먼저 알린다 */}
+        {/* 회차를 만드는 순간 파는 방식이 바뀐다. 지금 어느 쪽인지와 무엇이 달라지는지 알린다.
+            종료일이 있는 전시라면 지금은 기간형이고, 회차를 만들면 시간지정 입장이 된다.
+            종료일도 없으면 지금은 팔 방법이 없어서 예매 탭에 아예 안 뜬다 */}
         {schedules.length === 0 ? (
           <View style={[styles.card, { backgroundColor: theme.emptyCellBackground }]}>
-            <Text style={[styles.cardTitle, { color: theme.text }]}>회차가 없어요</Text>
+            <Text style={[styles.cardTitle, { color: theme.text }]}>
+              {event.showEndAt ? '지금은 기간형이에요' : '회차가 없어요'}
+            </Text>
             <Text style={[styles.cardHint, { color: theme.textSecondary }]}>
-              회차가 없는 공연은 예매 탭에 보이지 않아요. 회차를 하나 이상 추가해주세요.
+              {event.showEndAt
+                ? `${formatDate(event.showAt)} ~ ${formatDate(event.showEndAt)} 안에서 관람일을 고르는 방식이고 정원이 없어요. 회차를 하나라도 만들면 그 회차 중에서 고르는 방식으로 바뀌고, 회차마다 정원이 생겨요.`
+                : '회차가 없고 종료일도 없어서 예매 탭에 보이지 않아요. 회차를 하나 이상 추가해주세요.'}
+            </Text>
+          </View>
+        ) : null}
+
+        {/* 회차가 생겨서 기간형에서 회차형으로 넘어온 전시. 종료일이 더 이상 안 쓰인다는 걸 알린다 */}
+        {schedules.length > 0 && event.showEndAt ? (
+          <View style={[styles.card, { backgroundColor: theme.emptyCellBackground }]}>
+            <Text style={[styles.cardTitle, { color: theme.text }]}>회차로 파는 중이에요</Text>
+            <Text style={[styles.cardHint, { color: theme.textSecondary }]}>
+              회차가 있어서 종료일({formatDate(event.showEndAt)})은 예매에 쓰이지 않아요. 회차를
+              전부 지우면 다시 기간 안에서 관람일을 고르는 방식으로 돌아가요.
             </Text>
           </View>
         ) : null}
@@ -292,8 +297,8 @@ export default function AdminSchedulesScreen() {
           <View style={[styles.card, { backgroundColor: theme.emptyCellBackground }]}>
             <Text style={[styles.cardTitle, { color: theme.text }]}>시작일과 첫 회차가 달라요</Text>
             <Text style={[styles.cardHint, { color: theme.textSecondary }]}>
-              공연 시작일은 {formatDate(event.showAt)}인데 첫 회차는 {formatDate(first.startsAt)}
-              예요. 카탈로그는 시작일 순서로 정렬되니 공연 편집에서 시작일을 맞춰주세요.
+              시작일은 {formatDate(event.showAt)}인데 첫 회차는 {formatDate(first.startsAt)}예요.
+              예매 탭 목록은 시작일 순서로 정렬되니 공연 편집에서 시작일을 맞춰주세요.
             </Text>
           </View>
         ) : null}

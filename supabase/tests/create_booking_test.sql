@@ -16,7 +16,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(19);
+select plan(22);
 
 -- ── 픽스처 ────────────────────────────────────────────────
 -- auth.users에 넣으면 handle_new_user 트리거가 public.users 프로필을 자동으로 만들어준다.
@@ -241,6 +241,52 @@ select throws_ok(
   '22023'::char(5),
   '전시 기간 안의 날짜를 선택해주세요.',
   '전시 기간 밖의 날짜는 고를 수 없다'
+);
+
+-- ── 19. 회차도 종료일도 없으면 팔 방법이 없다 ─────────────
+-- 새로 등록만 하고 회차를 안 만든 공연이 이 상태다. 이전에는 회차형으로 흘러가
+-- '관람 회차를 선택해주세요.'로 끊겼는데, 고를 회차가 아예 없어서 말이 안 되는 안내였다.
+insert into events (id, title, genre, show_at, show_end_at, price, venue_name)
+values ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '회차 없는 공연', '연극',
+        now() + interval '10 days', null, 30000, '테스트 소극장');
+
+select throws_ok(
+  $$ select create_booking('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'::uuid, 1, null, null, null) $$,
+  '22023'::char(5),
+  '아직 예매할 수 없는 공연입니다.',
+  '회차도 종료일도 없으면 무엇을 골라도 예매할 수 없다'
+);
+
+-- ── 20~21. 회차가 생기면 전시도 회차형이 된다 ─────────────
+-- 여기가 이 규칙의 핵심이다. 위 17~18에서 기간형으로 동작하던 바로 그 전시에 회차를 붙이면,
+-- 같은 공연이 회차를 골라야 하는 쪽으로 바뀐다(시간지정 입장 전시).
+-- 종료일은 그대로 있지만 더 이상 판단에 쓰이지 않는다.
+insert into event_schedules (id, event_id, starts_at, capacity, sold_count)
+values ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+        now() + interval '5 days', 10, 0);
+
+select throws_ok(
+  $$ select create_booking('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid, 1, null, null,
+                           (now() + interval '3 days')::date) $$,
+  '22023'::char(5),
+  '관람 회차를 선택해주세요.',
+  '회차가 생긴 전시는 기간 안의 날짜만으로는 예매할 수 없다'
+);
+
+-- 회차로 사면 관람 시각이 그 회차 시각이 된다(기간형의 "그날 18시"가 아니라).
+select is(
+  (
+    with created as (
+      select create_booking('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid, 1, null,
+                            'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid, null) as id
+    )
+    select date_trunc('minute', b.watched_at)
+    from created c
+    join bookings b on b.id = c.id
+  ),
+  (select date_trunc('minute', starts_at) from event_schedules
+   where id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'),
+  '회차로 산 전시는 관람 시각이 그 회차 시각이 된다'
 );
 
 select * from finish();
