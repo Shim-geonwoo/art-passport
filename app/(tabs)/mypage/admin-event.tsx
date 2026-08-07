@@ -34,6 +34,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackHeader } from '@/components/back-header';
 import { ScheduleForm, ScheduleFormState } from '@/components/schedule-form';
+import { CITIES, City, DEFAULT_CITY, cityCode } from '@/constants/cities';
 import { CategoryColors, Colors, Genre, Theme, ThemeColors } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
 import { useAuth } from '@/contexts/auth';
@@ -131,6 +132,7 @@ export default function AdminEventEditScreen() {
   const [title, setTitle] = useState('');
   const [genre, setGenre] = useState<Genre>('뮤지컬');
   const [venueName, setVenueName] = useState('');
+  const [city, setCity] = useState<City>(DEFAULT_CITY);
   const [price, setPrice] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState(''); // 비어 있으면 기간형으로도 팔 수 없다
@@ -169,6 +171,7 @@ export default function AdminEventEditScreen() {
         setTitle(event.title);
         setGenre(event.genre);
         setVenueName(event.venueName);
+        setCity(event.city);
         setPrice(String(event.price));
         setStartDate(toDateKey(event.showAt));
         setEndDate(event.showEndAt ? toDateKey(event.showEndAt) : '');
@@ -242,7 +245,7 @@ export default function AdminEventEditScreen() {
     }
 
     return {
-      input: { title, genre, venueName, price: priceNumber, showAt, showEndAt, description },
+      input: { title, genre, venueName, city, price: priceNumber, showAt, showEndAt, description },
     };
   }
 
@@ -338,7 +341,7 @@ export default function AdminEventEditScreen() {
     }
     // validate는 매 렌더 새로 만들어지는 함수라 deps에 넣지 않는다(넣으면 매번 다시 만들어진다)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isNew, id, title, genre, venueName, price, startDate, endDate, description, pending, isAdmin, refreshCatalog]);
+  }, [isNew, id, title, genre, venueName, city, price, startDate, endDate, description, pending, isAdmin, refreshCatalog]);
 
   // 포스터 고르기 → 올리기. 프로필 사진과 같은 흐름이고, 비율만 포스터에 맞춘다.
   const handlePickPoster = useCallback(async () => {
@@ -534,6 +537,37 @@ export default function AdminEventEditScreen() {
           theme={theme}
           placeholder="블루스퀘어"
         />
+
+        {/* 도시: 보딩패스의 도착지가 된다. 장소 이름만으로는 알 수 없어서 따로 고른다 —
+            '대전예술의전당'은 이름에 도시가 있지만 '블루스퀘어'·'KSPO돔'은 없다 */}
+        <Text style={[styles.fieldLabel, { color: theme.text }]}>도시</Text>
+        <View style={styles.genreRow}>
+          {CITIES.map((c) => (
+            <Pressable
+              key={c.name}
+              onPress={() => setCity(c.name)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: c.name === city }}
+              style={[
+                styles.genreChip,
+                {
+                  backgroundColor: c.name === city ? Colors.navy : 'transparent',
+                  borderColor: c.name === city ? Colors.navy : theme.dashedBorder,
+                },
+              ]}>
+              <Text
+                style={[
+                  styles.genreChipText,
+                  { color: c.name === city ? Colors.textOnColor : theme.textSecondary },
+                ]}>
+                {c.name}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        <Text style={[styles.hint, { color: theme.textSecondary }]}>
+          보딩패스 도착지에 {cityCode(city)}로 찍혀요.
+        </Text>
         <Field
           label="가격 (원)"
           value={price}

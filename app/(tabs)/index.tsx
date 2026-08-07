@@ -33,6 +33,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { RefreshErrorBanner } from '@/components/refresh-error-banner';
 import { CategoryColors, CategoryIcons, CategoryLabels, Colors, Genre, Theme } from '@/constants/colors';
+import { cityCode } from '@/constants/cities';
 import { Fonts } from '@/constants/fonts';
 import { useAuth } from '@/contexts/auth';
 import { useBookings } from '@/contexts/bookings';
@@ -92,11 +93,11 @@ const CARD_ICON_COLOR = '#000000'; // 카테고리 아이콘 / 비행기 아이�
 const CARD_LABEL_COLOR = '#2C2C2C'; // Bold 10 라벨 글씨
 const CARD_VALUE_COLOR = '#FFFFFF'; // DemiLight 값 글씨
 
-// 보딩패스는 "출발 = 자택(HOME)", "도착 = 관람 도시(SEOUL)"인
-// 가상의 비행기 티켓 컨셉이다. 실제 도시가 아니라 시안 그대로 고정 문구를 쓴다.
+// 보딩패스는 "출발 = 자택(HOME)", "도착 = 관람 도시"인 가상의 비행기 티켓 컨셉이다.
+// 출발지는 사람마다 다를 수 없어서 고정 문구를 쓰고, 도착지는 공연이 열리는 도시를 따라간다
+// (events.city -> constants/cities.ts에서 영문으로 옮긴다).
 const DEPARTURE_LABEL = '자택';
 const DEPARTURE_VALUE = 'HOME';
-const ARRIVAL_VALUE = 'SEOUL';
 
 // 화면 맨 위 타이틀 (피그마 "art - boarding pass" 프레임 상단 헤더)
 const SCREEN_TITLE = 'ART PASS';
@@ -119,6 +120,7 @@ type Booking = {
   genre: Genre; // 장르 (카드 배경색 + 아이콘을 결정한다)
   eventTitle: string; // 공연/전시 제목
   venueName: string; // 관람 장소 (도착지 라벨로 쓰인다)
+  city: string; // 관람 도시 (도착지 영문으로 옮겨 쓴다)
   passengerName: string; // 예매자 이름
   showAt: Date; // 관람 시작 시각
   dateText: string; // 관람일 (YYYY.MM.DD)
@@ -184,6 +186,7 @@ function toCardBooking(booking: DerivedBooking, passengerName: string): Booking 
     genre: booking.event.genre,
     eventTitle: booking.event.title,
     venueName: booking.event.venueName,
+    city: booking.event.city,
     passengerName,
     showAt: booking.showAt,
     dateText: formatDate(booking.showAt),
@@ -555,7 +558,7 @@ function BoardingPassCard({ booking }: { booking: Booking }) {
         <Text style={[styles.smallLabel, styles.posVenueLabel]} numberOfLines={1}>
           {booking.venueName}
         </Text>
-        <Text style={[styles.bigValue, styles.posArrivalValue]}>{ARRIVAL_VALUE}</Text>
+        <Text style={[styles.bigValue, styles.posArrivalValue]}>{cityCode(booking.city)}</Text>
 
         {/* 비행기 아이콘: 37x37 칸 가운데 (피그마 실측 아이콘은 채워진 airplane) */}
         <View style={styles.posPlaneIconSlot}>

@@ -6,6 +6,7 @@
 // data/bookings.ts가 예매(bookings)에 딸려오는 event를 표시할 때도 이 파일의 mapEventRow/EventItem을
 // 그대로 재사용한다(한 이벤트를 두 군데서 다르게 옮기지 않도록).
 
+import { City, DEFAULT_CITY } from '@/constants/cities';
 import { Genre } from '@/constants/colors';
 import { formatDate, formatDateTime, startOfToday } from '@/data/schedule';
 import { supabase } from '@/lib/supabase';
@@ -27,6 +28,7 @@ export type EventItem = {
   title: string;
   genre: Genre;
   venueName: string;
+  city: City; // 보딩패스 도착지로 쓴다 (constants/cities.ts)
   price: number;
   showAt: Date; // 시작일. 카탈로그 정렬 기준이고, 기간형에서는 고를 수 있는 첫 날이기도 하다
   // 기간형으로 팔 때 쓰는 종료일. 회차가 하나라도 있으면 회차형이라 이 값은 예매에 쓰이지 않는다
@@ -44,6 +46,7 @@ export type EventRow = {
   title: string;
   genre: string;
   venue_name: string;
+  city: string;
   price: number;
   show_at: string;
   show_end_at: string | null;
@@ -59,6 +62,8 @@ export function mapEventRow(row: EventRow): EventItem {
     title: row.title,
     genre: row.genre as Genre,
     venueName: row.venue_name,
+    // 옛 예매 기록처럼 도시가 비어 있는 행이 섞여도 보딩패스가 빈칸으로 찍히지 않게 기본값을 둔다
+    city: (row.city as City) ?? DEFAULT_CITY,
     price: row.price,
     showAt: new Date(row.show_at),
     showEndAt: row.show_end_at ? new Date(row.show_end_at) : null,

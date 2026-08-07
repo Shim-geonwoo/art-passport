@@ -9,6 +9,7 @@
 // 쓰기 권한은 DB가 정한다(20260806150000_admin_role.sql). 여기서 화면을 감추는 건 편의일 뿐이고,
 // 관리자가 아닌 사람이 이 함수를 불러 저장을 시도하면 서버가 거절한다.
 
+import { City, DEFAULT_CITY } from '@/constants/cities';
 import { Genre } from '@/constants/colors';
 import { parseDateKey } from '@/data/schedule';
 import { supabase } from '@/lib/supabase';
@@ -30,6 +31,7 @@ export type AdminEventItem = {
   title: string;
   genre: Genre;
   venueName: string;
+  city: City;
   price: number;
   showAt: Date;
   showEndAt: Date | null; // 값이 있으면 전시(기간형), null이면 공연(회차형)
@@ -45,6 +47,7 @@ type AdminEventRow = {
   title: string;
   genre: string;
   venue_name: string;
+  city: string;
   price: number;
   show_at: string;
   show_end_at: string | null;
@@ -61,6 +64,7 @@ function mapRow(row: AdminEventRow, now: Date): AdminEventItem {
     title: row.title,
     genre: row.genre as Genre,
     venueName: row.venue_name,
+    city: (row.city as City) ?? DEFAULT_CITY,
     price: row.price,
     showAt: new Date(row.show_at),
     showEndAt: row.show_end_at ? new Date(row.show_end_at) : null,
@@ -83,7 +87,7 @@ export async function fetchAdminEvents(now: Date = new Date()): Promise<AdminEve
   const { data, error } = await supabase
     .from('events')
     .select(
-      'id, title, genre, venue_name, price, show_at, show_end_at, poster_url, description, is_hidden, event_schedules(id, starts_at)'
+      'id, title, genre, venue_name, city, price, show_at, show_end_at, poster_url, description, is_hidden, event_schedules(id, starts_at)'
     )
     .order('show_at', { ascending: true });
   if (error) {
@@ -130,7 +134,7 @@ export async function fetchAdminEvent(
   const { data, error } = await supabase
     .from('events')
     .select(
-      'id, title, genre, venue_name, price, show_at, show_end_at, poster_url, description, is_hidden, event_schedules(id, starts_at)'
+      'id, title, genre, venue_name, city, price, show_at, show_end_at, poster_url, description, is_hidden, event_schedules(id, starts_at)'
     )
     .eq('id', id)
     .maybeSingle();
@@ -154,6 +158,7 @@ export type AdminEventInput = {
   title: string;
   genre: Genre;
   venueName: string;
+  city: City;
   price: number;
   showAt: Date;
   // 값이 있으면 전시(기간형), null이면 공연(회차형).
@@ -167,6 +172,7 @@ function toRow(input: AdminEventInput) {
     title: input.title.trim(),
     genre: input.genre,
     venue_name: input.venueName.trim(),
+    city: input.city,
     price: input.price,
     show_at: input.showAt.toISOString(),
     show_end_at: input.showEndAt ? input.showEndAt.toISOString() : null,

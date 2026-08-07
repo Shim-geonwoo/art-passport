@@ -37,6 +37,7 @@ function makeBooking(watchedAt: string, overrides: Partial<BookingRow> = {}): Bo
       title: '테스트 공연',
       genre: '뮤지컬',
       venue_name: '테스트 극장',
+      city: '서울',
       price: 50000,
       show_at: watchedAt,
       show_end_at: null,
