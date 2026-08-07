@@ -274,15 +274,18 @@ select throws_ok(
 );
 
 -- 회차로 사면 관람 시각이 그 회차 시각이 된다(기간형의 "그날 18시"가 아니라).
+--
+-- 예매를 만드는 문장과 확인하는 문장을 나눈다(위 다른 테스트들과 같은 방식).
+-- 한 문장 안에서 create_booking을 부르고 그 자리에서 bookings를 읽으면, 함수가 방금 넣은 행이
+-- 그 문장의 스냅샷에 없어서 NULL이 나온다.
+insert into made
+select 'exhibition-session', create_booking('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid, 1, null,
+                                            'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid, null);
+
 select is(
   (
-    with created as (
-      select create_booking('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid, 1, null,
-                            'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid, null) as id
-    )
-    select date_trunc('minute', b.watched_at)
-    from created c
-    join bookings b on b.id = c.id
+    select date_trunc('minute', watched_at) from bookings
+    where id = (select booking_id from made where label = 'exhibition-session')
   ),
   (select date_trunc('minute', starts_at) from event_schedules
    where id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'),

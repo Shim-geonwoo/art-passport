@@ -58,9 +58,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 버전을 고정한다. version: latest는 매번 GitHub API로 최신 릴리스를 물어보는데,
+      # 그 호출이 rate limit에 걸리면 테스트를 돌려보지도 못하고 job이 죽는다
+      # (실제로 한 번 그렇게 실패했다 — 코드와 무관한 이유로 빨간 불이 켜진다).
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.111.0
 
       # 마이그레이션을 적용하며 로컬 DB를 띄운다 (1~2분 걸린다)
       - name: 로컬 Supabase 띄우기
