@@ -91,7 +91,11 @@ export default function BookingListScreen() {
           returnKeyType="search"
         />
         {isSearching ? (
-          <Pressable onPress={() => setSearchQuery('')} hitSlop={8}>
+          <Pressable
+            onPress={() => setSearchQuery('')}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="검색어 지우기">
             <Ionicons name="close-circle" size={18} color={theme.textSecondary} />
           </Pressable>
         ) : null}

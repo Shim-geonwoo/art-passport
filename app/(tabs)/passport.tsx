@@ -153,8 +153,16 @@ export default function PassportScreen() {
         {/* 상단: ART PORT 로고 + 검색 아이콘 */}
         <View style={styles.header}>
           <Text style={[styles.logo, { color: theme.text }]}>ART PORT</Text>
-          {/* 크기를 24로 맞췄다 (보딩패스 헤더의 검색 아이콘과 같은 값). 예전엔 22였다 */}
-          <Ionicons name="search-outline" size={24} color={theme.text} />
+          {/* 크기를 24로 맞췄다 (보딩패스 헤더의 검색 아이콘과 같은 값). 예전엔 22였다.
+              아직 눌러도 아무 일이 없는 장식 아이콘이라 스크린리더에서는 감춰둔다
+              (읽어줄 뜻도 없고, 누를 수 있는 것처럼 알리면 오히려 헷갈린다) */}
+          <Ionicons
+            name="search-outline"
+            size={24}
+            color={theme.text}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+          />
         </View>
 
         {/* 스탬프 3x3 그리드 (항상 9칸: 스탬프 + 점선 빈 칸) */}
@@ -182,10 +190,16 @@ export default function PassportScreen() {
 
         {/* 쿠폰 문구 + "리워드함으로 가기" 버튼.
             페이지가 꽉 안 찼거나 그 쿠폰을 이미 쓴 경우엔 "숨기되 자리는 그대로 유지"한다(opacity 0 + 클릭 불가).
-            그래야 아래 페이지 번호가 리워드 유무와 상관없이 항상 같은 위치에 고정된다. */}
+            그래야 아래 페이지 번호가 리워드 유무와 상관없이 항상 같은 위치에 고정된다.
+
+            단, opacity 0과 pointerEvents는 "눈에 안 보이고 손가락으로도 안 눌린다"까지만 해준다.
+            스크린리더는 그 둘을 보지 않아서, 이대로 두면 화면에 없는 "리워드함으로 가기" 버튼이
+            읽히고 눌리기까지 한다. 감출 때는 접근성 트리에서도 같이 빼야 한다. */}
         <View
           style={[styles.rewardArea, !showReward && styles.rewardAreaHidden]}
-          pointerEvents={showReward ? 'auto' : 'none'}>
+          pointerEvents={showReward ? 'auto' : 'none'}
+          accessibilityElementsHidden={!showReward}
+          importantForAccessibility={showReward ? 'auto' : 'no-hide-descendants'}>
           <Text style={[styles.couponText, { color: theme.text }]}>WE GOT A COUPON!</Text>
           <Pressable style={styles.rewardButton} onPress={handleClaimReward}>
             <Text style={styles.rewardButtonText}>리워드함으로 가기</Text>
@@ -194,7 +208,16 @@ export default function PassportScreen() {
 
         {/* 페이지 넘기기: ‹ 01 › — 이전/다음 버튼으로 여권 장을 넘겨본다 (양 끝에서는 흐리게 비활성) */}
         <View style={styles.pageNav}>
-          <Pressable onPress={goToPrevPage} disabled={currentPage <= 1} hitSlop={8}>
+          {/* 화살표 둘 다 아이콘뿐이라 라벨을 직접 단다.
+              양 끝에서는 흐리게 보이는 것만으로 비활성을 알 수 없으므로,
+              accessibilityState.disabled로 "지금은 못 누른다"까지 함께 알린다. */}
+          <Pressable
+            onPress={goToPrevPage}
+            disabled={currentPage <= 1}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="이전 여권 페이지"
+            accessibilityState={{ disabled: currentPage <= 1 }}>
             <Ionicons
               name="chevron-back"
               size={20}
@@ -202,10 +225,19 @@ export default function PassportScreen() {
               style={currentPage <= 1 ? styles.pageArrowDisabled : undefined}
             />
           </Pressable>
-          <Text style={[styles.pageNumber, { color: theme.textSecondary }]}>
+          {/* '01'은 소리로 들으면 그냥 숫자라 무엇의 1인지 알 수 없다 */}
+          <Text
+            style={[styles.pageNumber, { color: theme.textSecondary }]}
+            accessibilityLabel={`${totalPages}페이지 중 ${currentPage}페이지`}>
             {String(currentPage).padStart(2, '0')}
           </Text>
-          <Pressable onPress={goToNextPage} disabled={currentPage >= totalPages} hitSlop={8}>
+          <Pressable
+            onPress={goToNextPage}
+            disabled={currentPage >= totalPages}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="다음 여권 페이지"
+            accessibilityState={{ disabled: currentPage >= totalPages }}>
             <Ionicons
               name="chevron-forward"
               size={20}
@@ -225,8 +257,16 @@ function StampCard({ stamp, width, height }: { stamp: Stamp; width: number; heig
   const categoryColor = CategoryColors[event.genre];
   const genreIconName = CategoryIcons[event.genre];
 
+  // 스탬프 한 칸 = 포스터 + 공연장 + 날짜 + 장르 아이콘. 그냥 두면 스크린리더가 이 조각들을
+  // 따로따로 읽어서 한 칸에 네 번을 멈춘다(9칸이면 서른 번이 넘는다). 칸을 하나로 묶고
+  // 아래 한 문장으로 대신 읽게 한다 — 눈으로 스탬프 한 장을 보는 것과 같은 단위다.
+  const label = `${stamp.order}번째 스탬프, ${event.genre} ${event.title}, ${event.venueName}, ${showAt.getFullYear()}년 ${showAt.getMonth() + 1}월 ${showAt.getDate()}일`;
+
   return (
-    <View style={[styles.stampCell, { width, height, backgroundColor: categoryColor }]}>
+    <View
+      style={[styles.stampCell, { width, height, backgroundColor: categoryColor }]}
+      accessible
+      accessibilityLabel={label}>
       {/* 포스터 프레임: 카드 너비만큼의 정사각형 창 (Figma 120x120, overflow hidden).
           posterUrl이 있으면 그 포스터를, 없으면 색 배경 + 아이콘으로 대체한다 (포스터=스탬프) */}
       <View style={[styles.posterFrame, { height: width }]}>
@@ -270,7 +310,13 @@ function EmptyStampSlot({
   const strokeWidth = 1.5;
 
   return (
-    <View style={[styles.emptyStampCell, { width, height }]}>
+    // 빈 칸은 스크린리더에서 아예 감춘다. 점선 칸 하나하나는 읽어줄 내용도, 누를 것도 없어서
+    // 그대로 두면 "빈 칸"이 최대 아홉 번 반복되며 실제 스탬프를 찾기만 어려워진다.
+    // (iOS는 accessibilityElementsHidden, 안드로이드는 importantForAccessibility로 각각 감춘다)
+    <View
+      style={[styles.emptyStampCell, { width, height }]}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants">
       {/* View의 borderStyle:'dashed'는 일부 기기에서 점선이 깨져 보여서, SVG로 점선 테두리를 직접 그린다 */}
       <Svg width={width} height={height} style={StyleSheet.absoluteFill}>
         <Rect

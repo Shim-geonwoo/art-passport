@@ -78,8 +78,13 @@ export default function BookingDetailScreen() {
             <Ionicons name="image-outline" size={48} color={Colors.textOnColor} style={styles.posterIcon} />
           )}
 
-          {/* 뒤로가기 버튼: 포스터 위에 겹쳐서 배치 */}
-          <Pressable style={styles.backButton} onPress={() => router.back()}>
+          {/* 뒤로가기 버튼: 포스터 위에 겹쳐서 배치.
+              아이콘뿐이라 스크린리더용 라벨을 직접 단다 (components/back-header.tsx와 같은 이유) */}
+          <Pressable
+            style={styles.backButton}
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="뒤로 가기">
             <Ionicons name="chevron-back" size={22} color={Colors.textOnColor} />
           </Pressable>
         </View>

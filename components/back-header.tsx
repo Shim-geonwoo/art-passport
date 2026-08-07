@@ -12,7 +12,15 @@ import { Fonts } from '@/constants/fonts';
 export function BackHeader({ title, color }: { title: string; color: string }) {
   return (
     <View style={styles.header}>
-      <Pressable onPress={() => router.back()} hitSlop={8} style={styles.back}>
+      {/* 아이콘만 있는 버튼이라 스크린리더가 읽을 글자가 없다. 라벨을 직접 달아주지 않으면
+          "버튼"이라고만 읽혀서 무엇을 하는 버튼인지 알 수 없다.
+          (글자가 들어 있는 버튼은 그 글자가 그대로 읽히므로 라벨을 따로 안 달아도 된다) */}
+      <Pressable
+        onPress={() => router.back()}
+        hitSlop={8}
+        style={styles.back}
+        accessibilityRole="button"
+        accessibilityLabel="뒤로 가기">
         <Ionicons name="chevron-back" size={24} color={color} />
       </Pressable>
       <Text style={[styles.title, { color }]}>{title}</Text>
