@@ -9,7 +9,7 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import * as SplashScreen from 'expo-splash-screen';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import 'react-native-reanimated';
 
 import { AuthProvider, useAuth } from '@/contexts/auth';
@@ -24,6 +24,14 @@ export const unstable_settings = {
 
 // 폰트 로딩이 끝날 때까지 스플래시 화면을 계속 띄워둔다 (흰 화면이 잠깐 보이는 걸 막아준다)
 SplashScreen.preventAutoHideAsync();
+
+// 스플래시를 최소한 이만큼은 보여준다.
+//
+// Noto Sans KR은 앱 번들에 들어 있어서 보통 눈 깜짝할 새에 준비된다. 그러면 스플래시가
+// 한두 프레임만 스쳤다가 사라져서, 로고를 봤다는 느낌 없이 화면이 툭 튀는 것처럼 보였다.
+// 이 값은 "하한"이지 고정 지연이 아니다 — 폰트가 이보다 오래 걸리면(첫 실행이나 느린 기기)
+// 그때까지 계속 기다린다. 즉 앱이 느려지는 경우는 없고, 너무 빠를 때만 붙잡아 둔다.
+const MINIMUM_SPLASH_MS = 500;
 
 export default function RootLayout() {
   // 앱 전체에서 쓸 Noto Sans KR 폰트를 한 번만 불러온다.
@@ -43,15 +51,31 @@ export default function RootLayout() {
   // ("성공했거나 실패했거나" = 더 기다릴 이유가 없다는 뜻)
   const fontsSettled = fontsLoaded || !!fontError;
 
+  // 최소 노출 시간이 지났는가. 폰트 로딩과는 상관없이 앱이 뜨자마자 따로 흐른다.
+  const [minimumSplashPassed, setMinimumSplashPassed] = useState(false);
+
   useEffect(() => {
-    if (fontsSettled) {
-      // 기다릴 이유가 없어졌으니 스플래시 화면을 내린다
+    const timer = setTimeout(() => setMinimumSplashPassed(true), MINIMUM_SPLASH_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // 준비가 끝났는가 = 폰트 결과가 나왔고, 최소 노출 시간도 지났는가.
+  // 둘 중 늦게 끝나는 쪽에 맞춰지므로, 폰트가 오래 걸리면 폰트를 기다리고
+  // 폰트가 순식간에 끝나면 MINIMUM_SPLASH_MS를 채운다.
+  //
+  // 폰트 쪽 조건이 fontsLoaded가 아니라 fontsSettled인 게 중요하다. 폰트 로딩이 실패했을 때
+  // fontsLoaded는 영영 false라, 그걸 기다리면 스플래시가 안 내려가고 앱이 멈춘다.
+  const isReady = fontsSettled && minimumSplashPassed;
+
+  useEffect(() => {
+    if (isReady) {
+      // 준비가 끝났으니 스플래시 화면을 내린다
       SplashScreen.hideAsync();
     }
-  }, [fontsSettled]);
+  }, [isReady]);
 
-  // 아직 결과를 기다리는 중이면 아무것도 그리지 않는다 (스플래시가 대신 보여준다)
-  if (!fontsSettled) {
+  // 아직 준비 중이면 아무것도 그리지 않고 기다린다 (스플래시가 대신 보여준다)
+  if (!isReady) {
     return null;
   }
 
