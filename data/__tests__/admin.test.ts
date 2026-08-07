@@ -10,6 +10,7 @@
 
 import { validateScheduleDraft } from '@/data/admin';
 import type { AdminScheduleItem } from '@/data/admin';
+import { formatDateInput, formatTimeInput } from '@/data/schedule';
 
 // data/admin.ts가 Supabase 클라이언트를 가져오지만 검증에는 쓰이지 않는다.
 // (쓰이는 건 fetch/create 쪽이고 여기서는 부르지 않는다 — data/__tests__/bookings.test.ts와 같은 처리)
@@ -32,6 +33,49 @@ function makeSchedule(
 // 시간대를 일부러 안 붙인다. 실행하는 기기의 로컬 시간으로 읽히는데, 검증도 로컬 기준이라
 // 어느 시간대에서 돌려도 결과가 같다.
 const 회차 = makeSchedule('s1', '2026-08-14T19:30:00');
+
+// 관리자 화면의 날짜·시각 칸은 숫자만 받고 구분자를 자동으로 넣는다.
+// 지울 때 구분자가 도로 붙으면 한 글자도 못 지우게 되므로 그 방향을 특히 확인한다.
+describe('입력 마스크 — 숫자만 치면 구분자가 들어간다', () => {
+  it('숫자를 치는 대로 - 가 들어간다', () => {
+    expect(formatDateInput('2026')).toBe('2026');
+    expect(formatDateInput('20260')).toBe('2026-0');
+    expect(formatDateInput('202608')).toBe('2026-08');
+    expect(formatDateInput('20260814')).toBe('2026-08-14');
+  });
+
+  it('지울 때 - 가 다시 붙지 않는다', () => {
+    // 사용자가 '2026-08'에서 백스페이스를 누르면 '2026-0'이 들어온다.
+    // 숫자가 5개라 '-'를 유지하고, 한 번 더 지우면 '2026-'이 들어와 '-'가 사라진다.
+    expect(formatDateInput('2026-0')).toBe('2026-0');
+    expect(formatDateInput('2026-')).toBe('2026');
+  });
+
+  it('구분자가 무엇이든 붙여넣으면 같은 결과가 된다', () => {
+    expect(formatDateInput('2026-08-14')).toBe('2026-08-14');
+    expect(formatDateInput('2026.08.14')).toBe('2026-08-14');
+    expect(formatDateInput('2026/08/14')).toBe('2026-08-14');
+  });
+
+  it('0을 안 채운 글을 붙여넣으면 어긋난다 — 숫자만 남기므로 복원할 수 없다', () => {
+    // '2026년 8월 14일'은 숫자가 7개(2026814)뿐이라 월이 한 자리인지 두 자리인지 알 수 없다.
+    // 이대로 두는 이유: 어긋난 값은 화면에 그대로 보이고, 저장할 때 parseDateKey가 걸러낸다.
+    // 붙여넣기를 되살리려고 규칙을 늘리면 정작 흔한 경우(숫자만 치기)가 복잡해진다.
+    expect(formatDateInput('2026년 8월 14일')).toBe('2026-81-4');
+  });
+
+  it('여덟 자리를 넘으면 잘라낸다', () => {
+    expect(formatDateInput('202608149999')).toBe('2026-08-14');
+  });
+
+  it('시각도 같은 방식이다', () => {
+    expect(formatTimeInput('19')).toBe('19');
+    expect(formatTimeInput('1930')).toBe('19:30');
+    expect(formatTimeInput('19:3')).toBe('19:3');
+    expect(formatTimeInput('19:')).toBe('19');
+    expect(formatTimeInput('193045')).toBe('19:30');
+  });
+});
 
 describe('validateScheduleDraft — 형식', () => {
   it('제대로 적은 값은 Date와 정원으로 바뀐다', () => {

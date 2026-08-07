@@ -2,12 +2,12 @@
 //
 // 공연 하나의 회차(날짜·시각·정원)를 만들고 고치고 지운다.
 //
-// 3단계까지 비어 있던 구멍이 여기서 막힌다. 공연을 등록해도 회차가 없으면 예매 탭에 아예 뜨지
-// 않는데(create_booking이 회차를 요구한다), 그때까지 회차를 만들 방법이 앱에 없었다.
-// 관리자 목록의 '회차 없음' 뱃지가 가리키던 곳이 이 화면이다.
+// 여기서 회차를 만드는 행위가 곧 이 공연을 어떻게 팔지 정한다. 회차가 하나라도 생기면 회차형이
+// 되고(회차를 골라 산다, 정원이 있다), 전부 지우면 기간형으로 돌아간다
+// (20260807103000_schedules_decide_type.sql — create_booking도 같은 순서로 가른다).
 //
-// 전시(기간형)는 여기 올 일이 없다. 전시는 회차 행 자체가 없고 그 없음이 곧 기간형의 정의라,
-// 관람일은 기간 안에서 고르고 정원도 없다. 다만 주소로 직접 들어올 수는 있어서 안내는 남겨둔다.
+// 그래서 전시도 여기 온다. 종료일이 있는 전시에 회차를 만들면 시간지정 입장 전시가 된다.
+// 지금 어느 쪽으로 팔리는지와 회차를 만들면 무엇이 달라지는지를 화면 위에 적어둔다.
 //
 // 편집은 줄을 눌러 그 자리에서 펼치는 방식으로 했다. 회차가 가진 값은 세 개(날짜·시각·정원)뿐이라
 // 화면을 하나 더 만들면 오가는 품이 더 든다. 한 번에 하나만 펼친다 — 여러 줄을 동시에 열어두면
@@ -24,20 +24,19 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackHeader } from '@/components/back-header';
 import { LoadError } from '@/components/load-error';
+import { ScheduleForm, ScheduleFormState } from '@/components/schedule-form';
 import { CategoryColors, Colors, Theme, ThemeColors } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
 import { useAuth } from '@/contexts/auth';
 import { useEvents } from '@/contexts/events';
 import {
   AdminEventItem,
-  AdminScheduleDraft,
   AdminScheduleItem,
   SCHEDULE_IN_USE,
   createAdminSchedule,
@@ -81,15 +80,12 @@ function confirmDelete(onConfirm: () => void) {
   ]);
 }
 
-// 편집 중인 폼. id가 null이면 "새 회차 추가", 값이 있으면 그 회차를 고치는 중이다.
-type FormState = AdminScheduleDraft & { id: string | null };
-
 // 새 회차의 처음 값.
 //
 // 마지막 회차의 "다음 날 같은 시각, 같은 정원"으로 채운다. 공연 회차는 보통 며칠씩 이어져서
 // 이렇게 두면 대개 손댈 곳이 없거나 날짜 하나만 고치면 된다.
 // 회차가 하나도 없으면 공연 시작일(events.show_at)에서 시작한다 — 첫 회차는 보통 그 날이다.
-function newScheduleForm(schedules: AdminScheduleItem[], event: AdminEventItem): FormState {
+function newScheduleForm(schedules: AdminScheduleItem[], event: AdminEventItem): ScheduleFormState {
   const last = schedules[schedules.length - 1];
   if (last) {
     const next = new Date(last.startsAt);
@@ -124,7 +120,7 @@ export default function AdminSchedulesScreen() {
   const [schedules, setSchedules] = useState<AdminScheduleItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState<FormState | null>(null);
+  const [form, setForm] = useState<ScheduleFormState | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -319,10 +315,12 @@ export default function AdminSchedulesScreen() {
           <ScheduleForm
             form={form}
             onChange={setForm}
-            onSave={handleSave}
+            onSubmit={handleSave}
             onCancel={() => setForm(null)}
-            isSaving={isSaving}
+            isBusy={isSaving}
             theme={theme}
+            title="새 회차"
+            submitLabel="저장"
           />
         ) : null}
 
@@ -332,12 +330,14 @@ export default function AdminSchedulesScreen() {
               key={schedule.id}
               form={form}
               onChange={setForm}
-              onSave={handleSave}
+              onSubmit={handleSave}
               onCancel={() => setForm(null)}
               onDelete={handleDelete}
               soldCount={schedule.soldCount}
-              isSaving={isSaving}
+              isBusy={isSaving}
               theme={theme}
+              title="회차 수정"
+              submitLabel="저장"
             />
           ) : (
             <ScheduleRow
@@ -397,141 +397,6 @@ function ScheduleRow({
         {remaining.toLocaleString('ko-KR')}
       </Text>
     </Pressable>
-  );
-}
-
-// 회차 추가/편집 폼. 두 경우가 채우는 칸이 같아서 하나로 쓴다 —
-// 다른 건 처음 값이 무엇인지와, 편집일 때만 삭제 버튼이 있다는 것뿐이다.
-function ScheduleForm({
-  form,
-  onChange,
-  onSave,
-  onCancel,
-  onDelete,
-  soldCount,
-  isSaving,
-  theme,
-}: {
-  form: FormState;
-  onChange: (form: FormState) => void;
-  onSave: () => void;
-  onCancel: () => void;
-  onDelete?: () => void;
-  soldCount?: number;
-  isSaving: boolean;
-  theme: ThemeColors;
-}) {
-  return (
-    <View style={[styles.form, { borderColor: Colors.navy }]}>
-      <Text style={[styles.formTitle, { color: theme.text }]}>
-        {form.id ? '회차 수정' : '새 회차'}
-      </Text>
-
-      <View style={styles.formRow}>
-        <FormField
-          label="날짜"
-          value={form.date}
-          onChangeText={(date) => onChange({ ...form, date })}
-          placeholder="2026-08-14"
-          theme={theme}
-          flex={2}
-        />
-        <FormField
-          label="시각"
-          value={form.time}
-          onChangeText={(time) => onChange({ ...form, time })}
-          placeholder="19:30"
-          theme={theme}
-          flex={1}
-        />
-      </View>
-
-      <FormField
-        label="정원 (석)"
-        value={form.capacity}
-        onChangeText={(capacity) => onChange({ ...form, capacity })}
-        placeholder="1200"
-        theme={theme}
-        keyboardType="number-pad"
-      />
-
-      {/* 이미 판 표가 있으면 정원을 그 아래로 내릴 수 없다. 저장을 눌러 알기 전에 미리 적어둔다 */}
-      {soldCount ? (
-        <Text style={[styles.formHint, { color: theme.textSecondary }]}>
-          이미 {soldCount}매가 팔려서 정원을 그보다 줄일 수 없어요.
-        </Text>
-      ) : null}
-
-      <View style={styles.formButtons}>
-        <Pressable
-          style={[styles.formSave, isSaving && styles.disabled]}
-          onPress={onSave}
-          disabled={isSaving}
-          accessibilityRole="button">
-          <Text style={styles.formSaveText}>{isSaving ? '저장 중...' : '저장'}</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.formQuiet, { borderColor: theme.dashedBorder }]}
-          onPress={onCancel}
-          disabled={isSaving}
-          accessibilityRole="button">
-          <Text style={[styles.formQuietText, { color: theme.textSecondary }]}>취소</Text>
-        </Pressable>
-        {onDelete ? (
-          <Pressable
-            style={[styles.formQuiet, { borderColor: CategoryColors['연극'] }]}
-            onPress={onDelete}
-            disabled={isSaving}
-            accessibilityRole="button">
-            <Text style={[styles.formQuietText, { color: CategoryColors['연극'] }]}>삭제</Text>
-          </Pressable>
-        ) : null}
-      </View>
-    </View>
-  );
-}
-
-// 폼 안의 입력칸 하나 (라벨 + TextInput). 날짜와 시각을 한 줄에 나눠 놓으려고 flex를 받는다.
-function FormField({
-  label,
-  value,
-  onChangeText,
-  placeholder,
-  theme,
-  keyboardType,
-  flex,
-}: {
-  label: string;
-  value: string;
-  onChangeText: (text: string) => void;
-  placeholder?: string;
-  theme: ThemeColors;
-  keyboardType?: 'default' | 'number-pad';
-  flex?: number;
-}) {
-  return (
-    <View style={flex ? { flex } : undefined}>
-      <Text style={[styles.fieldLabel, { color: theme.text }]}>{label}</Text>
-      <TextInput
-        style={[
-          styles.input,
-          {
-            color: theme.text,
-            borderColor: theme.dashedBorder,
-            backgroundColor: theme.emptyCellBackground,
-          },
-        ]}
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={theme.textSecondary}
-        keyboardType={
-          keyboardType ?? (Platform.OS === 'web' ? 'default' : 'numbers-and-punctuation')
-        }
-        autoCapitalize="none"
-        autoCorrect={false}
-      />
-    </View>
   );
 }
 
@@ -648,71 +513,10 @@ const styles = StyleSheet.create({
     fontSize: 10,
   },
 
-  // 편집 폼. 목록 줄과 구분되게 테두리를 네이비로 두른다
-  form: {
-    borderWidth: 0.5,
-    borderRadius: 10,
-    padding: 12,
-    gap: 8,
-  },
-  formTitle: {
-    fontFamily: Fonts.medium,
-    fontSize: 14,
-  },
-  formRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  formHint: {
-    fontFamily: Fonts.regular,
-    fontSize: 11,
-    lineHeight: 16,
-  },
-  fieldLabel: {
-    fontFamily: Fonts.medium,
-    fontSize: 13,
-    marginBottom: 4,
-  },
-  input: {
-    height: 44,
-    borderWidth: 0.5,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    fontFamily: Fonts.regular,
-    fontSize: 14,
-  },
 
   formButtons: {
     flexDirection: 'row',
     gap: 8,
     marginTop: 4,
-  },
-  formSave: {
-    flex: 1,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: Colors.navy,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  formSaveText: {
-    fontFamily: Fonts.medium,
-    fontSize: 14,
-    color: Colors.textOnColor,
-  },
-  formQuiet: {
-    height: 40,
-    paddingHorizontal: 16,
-    borderWidth: 0.5,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  formQuietText: {
-    fontFamily: Fonts.medium,
-    fontSize: 13,
-  },
-  disabled: {
-    opacity: 0.6,
   },
 });

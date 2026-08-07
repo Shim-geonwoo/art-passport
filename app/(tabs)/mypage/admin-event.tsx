@@ -6,8 +6,13 @@
 // 여기서 B2(카탈로그 콘텐츠)가 풀린다. 시드 50건은 소개글이 전부 비어 있고 포스터도 임시
 // 이미지라, 이 화면이 그걸 채우는 자리다.
 //
-// 공연(회차형)과 전시(기간형)를 종료일 유무로 가른다. 이 한 칸이 앱 전체의 분기를 만들어서
-// (회차를 쓸지, 관람일을 고르게 할지, 정원이 있는지) 화면에서도 제일 위에 두고 분명히 보여준다.
+// 이 공연이 어떻게 팔리는지는 **회차 유무**가 정한다. 회차가 있으면 회차를 골라 사고(정원 있음),
+// 없고 종료일이 있으면 기간 안에서 날짜를 고른다(정원 없음). 둘 다 없으면 아직 못 판다.
+// 장르나 종료일이 미리 가르지 않는다(20260807103000_schedules_decide_type.sql).
+// 지금 어느 쪽인지와 무엇이 달라지는지를 화면 제일 위에 두고 분명히 보여준다.
+//
+// 새 공연 등록에서는 회차를 화면에 담아뒀다가 '등록하기'를 누를 때 공연과 함께 만든다.
+// 회차는 event_id가 있어야 만들 수 있어서 저장 전에는 DB에 넣을 수 없기 때문이다.
 
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as ImagePicker from 'expo-image-picker';
@@ -28,6 +33,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackHeader } from '@/components/back-header';
+import { ScheduleForm, ScheduleFormState } from '@/components/schedule-form';
 import { CategoryColors, Colors, Genre, Theme, ThemeColors } from '@/constants/colors';
 import { Fonts } from '@/constants/fonts';
 import { useAuth } from '@/contexts/auth';
@@ -35,15 +41,24 @@ import { useEvents } from '@/contexts/events';
 import {
   AdminEventInput,
   AdminEventItem,
+  AdminScheduleInput,
   createAdminEvent,
+  createAdminSchedule,
   fetchAdminEvent,
   fetchAdminSchedules,
   removePoster,
   setEventHidden,
   updateAdminEvent,
   uploadPoster,
+  validateScheduleDraft,
 } from '@/data/admin';
-import { parseDateKey, toDateKey } from '@/data/schedule';
+import {
+  formatDateInput,
+  formatMonthDayWeekday,
+  formatTime,
+  parseDateKey,
+  toDateKey,
+} from '@/data/schedule';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 const GENRES: Genre[] = ['전시', '클래식·무용', '콘서트', '연극', '뮤지컬'];
@@ -63,23 +78,31 @@ function notify(title: string, message: string) {
 // 그래도 timestamp 칸이라 시각이 필요해서, 저녁 공연이 가장 흔한 점을 따라 19:00으로 채운다.
 const DEFAULT_HOUR = '19:00';
 
-// 날짜 칸에 친 글자를 'YYYY-MM-DD' 모양으로 다듬는다. 숫자만 치면 '-'가 알아서 들어간다.
+// DB의 event_schedules.capacity 기본값과 같은 값 (회차 관리 화면과 같다)
+const DEFAULT_CAPACITY = '100';
+
+// 등록 화면에서 회차를 담을 때 폼에 미리 채워둘 값.
 //
-// 왜 필요한가: 관리자는 날짜를 문서에서 옮겨 적는데, 그때 손이 치는 건 숫자 8개다.
-// '-'를 직접 치게 하면 자판을 오가야 하고(모바일에서는 숫자판에 '-'가 없는 경우도 있다),
-// 빠뜨리면 저장할 때가 되어서야 형식이 틀렸다고 걸린다.
-//
-// 숫자가 아닌 글자는 전부 버린다. 그래서 붙여넣기('2026-08-14', '2026.08.14')도 같은 결과가 되고,
-// 지울 때는 '-'가 다시 붙지 않는다 — 숫자가 그만큼 남아 있을 때만 넣기 때문이다.
-function formatDateInput(text: string): string {
-  const digits = text.replace(/\D/g, '').slice(0, 8); // YYYYMMDD = 8자리
-  if (digits.length <= 4) {
-    return digits;
+// 마지막으로 담은 회차의 "다음 날 같은 시각, 같은 정원"으로 채운다(회차 관리 화면과 같은 규칙).
+// 아직 하나도 없으면 위에 적은 시작일 저녁 7시에서 시작한다 — 첫 회차는 보통 그 날이다.
+// 시작일도 아직 안 적었으면 빈 칸으로 둔다(엉뚱한 날짜를 미리 채워 넣지 않는다).
+function nextPendingDraft(
+  pending: AdminScheduleInput[],
+  startDate: string
+): { date: string; time: string; capacity: string } {
+  const last = pending[pending.length - 1];
+  if (last) {
+    const next = new Date(last.startsAt);
+    next.setDate(next.getDate() + 1);
+    return { date: toDateKey(next), time: formatTime(next), capacity: String(last.capacity) };
   }
-  if (digits.length <= 6) {
-    return `${digits.slice(0, 4)}-${digits.slice(4)}`;
-  }
-  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`;
+
+  const showAt = parseDateKey(startDate, DEFAULT_HOUR);
+  return {
+    date: showAt ? toDateKey(showAt) : '',
+    time: DEFAULT_HOUR,
+    capacity: DEFAULT_CAPACITY,
+  };
 }
 
 export default function AdminEventEditScreen() {
@@ -104,7 +127,7 @@ export default function AdminEventEditScreen() {
   const [venueName, setVenueName] = useState('');
   const [price, setPrice] = useState('');
   const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState(''); // 비어 있으면 공연(회차형)
+  const [endDate, setEndDate] = useState(''); // 비어 있으면 기간형으로도 팔 수 없다
   const [description, setDescription] = useState('');
   const [posterUrl, setPosterUrl] = useState<string | null>(null);
   const [isHidden, setIsHidden] = useState(false);
@@ -114,6 +137,15 @@ export default function AdminEventEditScreen() {
   // 보인다. 그렇다고 돌아올 때마다 공연 전체를 다시 불러오면 고치던 입력칸이 되돌아간다 —
   // 그래서 되돌아가도 되는 이 값만 따로 다시 센다.
   const [scheduleCount, setScheduleCount] = useState<number | null>(null);
+
+  // ── 새 공연 등록에서만 쓰는 회차 ──────────────────────────
+  //
+  // 회차는 event_id가 있어야 만들 수 있어서, 공연이 저장되기 전에는 DB에 넣을 수 없다.
+  // 그래서 등록 화면은 회차를 여기 모아뒀다가 공연을 만든 **직후에** 함께 넣는다.
+  // 이렇게 해야 등록 한 번으로 예매 가능한 공연이 완성된다 — 저장하고 회차 화면으로 옮겨가
+  // 한 번 더 만들어야 하면, 중간에 멈춘 공연(회차 없음)이 쌓이기 쉽다.
+  const [pending, setPending] = useState<AdminScheduleInput[]>([]);
+  const [pendingForm, setPendingForm] = useState<ScheduleFormState | null>(null);
 
   // 기존 공연이면 값을 불러와 칸을 채운다
   useEffect(() => {
@@ -203,6 +235,35 @@ export default function AdminEventEditScreen() {
     };
   }
 
+  // 담아둔 회차를 검사해서 목록에 넣는다. 검사는 회차 화면과 같은 함수를 쓴다 —
+  // 같은 시각 회차가 둘이면 안 된다는 규칙이 여기서도 그대로 적용돼야 한다.
+  // (팔린 매수는 아직 있을 수 없으므로 editing은 항상 null이다)
+  const handleAddPending = useCallback(() => {
+    if (!pendingForm) {
+      return;
+    }
+    const result = validateScheduleDraft(
+      pendingForm,
+      pending.map((input, index) => ({
+        id: `pending-${index}`,
+        startsAt: input.startsAt,
+        capacity: input.capacity,
+        soldCount: 0,
+      })),
+      null
+    );
+    if ('error' in result) {
+      notify('회차를 추가할 수 없어요', result.error);
+      return;
+    }
+
+    // 이른 순으로 세워둔다. 회차 화면과 같은 순서라 저장 뒤에 목록이 뒤바뀌어 보이지 않는다.
+    setPending((prev) =>
+      [...prev, result.input].sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())
+    );
+    setPendingForm(null);
+  }, [pendingForm, pending]);
+
   const handleSave = useCallback(async () => {
     const result = validate();
     if ('error' in result) {
@@ -214,15 +275,33 @@ export default function AdminEventEditScreen() {
     try {
       if (isNew) {
         const newId = await createAdminEvent(result.input);
+
+        // 담아둔 회차를 이제 넣는다. 공연은 이미 만들어졌으므로 여기서 실패해도 등록 자체는
+        // 남는다 — 몇 개까지 됐는지 알려주고, 나머지는 회차 화면에서 이어서 만들면 된다.
+        let created = 0;
+        try {
+          for (const schedule of pending) {
+            await createAdminSchedule(newId, schedule);
+            created += 1;
+          }
+        } catch {
+          notify(
+            '회차를 다 넣지 못했어요',
+            `공연은 등록됐고 회차는 ${created}개까지 만들어졌어요. 나머지는 회차 관리에서 이어서 추가해주세요.`
+          );
+        }
+
         await refreshCatalog();
-        // 새로 만든 것은 회차가 하나도 없다. 종료일을 적었으면 기간형으로 곧장 팔리지만,
-        // 안 적었으면 파는 방법이 없어서 예매 탭에 안 뜬다 — 목록으로 돌아가 '회차 없음' 뱃지를
-        // 보고서야 알게 되면 등록이 실패한 줄 안다.
+
+        // 지금 이 공연이 어떻게 팔리는지를 그대로 알려준다. 등록만 되고 예매 탭에 안 뜨는
+        // 경우(회차도 종료일도 없음)가 제일 헷갈리므로 그때는 무엇이 빠졌는지 말해준다.
         notify(
           '등록했어요',
-          result.input.showEndAt
-            ? '등록됐어요. 기간 안에서 관람일을 고르는 방식으로 팔려요.'
-            : '등록됐어요. 회차를 추가해야 예매 탭에 보입니다.'
+          created > 0
+            ? `등록됐어요. 회차 ${created}개로 예매 탭에 바로 보여요.`
+            : result.input.showEndAt
+              ? '등록됐어요. 기간 안에서 관람일을 고르는 방식으로 팔려요.'
+              : '등록됐어요. 회차를 추가해야 예매 탭에 보입니다.'
         );
         // 방금 만든 공연의 편집 화면으로 갈아탄다(뒤로가기가 빈 등록 화면으로 돌아가지 않게)
         router.replace({ pathname: '/mypage/admin-event', params: { id: newId } });
@@ -239,7 +318,7 @@ export default function AdminEventEditScreen() {
     }
     // validate는 매 렌더 새로 만들어지는 함수라 deps에 넣지 않는다(넣으면 매번 다시 만들어진다)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isNew, id, title, genre, venueName, price, startDate, endDate, description, isAdmin, refreshCatalog]);
+  }, [isNew, id, title, genre, venueName, price, startDate, endDate, description, pending, isAdmin, refreshCatalog]);
 
   // 포스터 고르기 → 올리기. 프로필 사진과 같은 흐름이고, 비율만 포스터에 맞춘다.
   const handlePickPoster = useCallback(async () => {
@@ -329,15 +408,12 @@ export default function AdminEventEditScreen() {
 
   // 지금 이 공연이 팔리는 방식. data/events.ts의 isSessionBased / isPeriodBased와 같은 순서다.
   //
-  // 회차 수는 저장된 값(scheduleCount)을 보고, 종료일은 아직 저장 안 한 입력칸을 본다.
-  // 종료일을 지우자마자 아래 안내가 따라 바뀌어야 하기 때문이다 — 저장해야 알 수 있으면
-  // 무엇이 달라지는지 모른 채로 저장하게 된다.
+  // 회차는 저장된 것(scheduleCount)과 등록 화면에서 담아둔 것(pending)을 함께 센다.
+  // 종료일은 아직 저장 안 한 입력칸을 본다 — 종료일을 지우거나 회차를 담자마자 안내가 따라
+  // 바뀌어야 하기 때문이다. 저장해야 알 수 있으면 무엇이 달라지는지 모른 채로 저장하게 된다.
+  const scheduleTotal = (scheduleCount ?? 0) + pending.length;
   const sellingMode: 'session' | 'period' | 'none' =
-    scheduleCount !== null && scheduleCount > 0
-      ? 'session'
-      : endDate.trim().length > 0
-        ? 'period'
-        : 'none';
+    scheduleTotal > 0 ? 'session' : endDate.trim().length > 0 ? 'period' : 'none';
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top']}>
@@ -524,7 +600,73 @@ export default function AdminEventEditScreen() {
             </View>
             <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
           </Pressable>
-        ) : null}
+        ) : (
+          /* 새 공연 등록: 회차를 여기 담아뒀다가 아래 '등록하기'를 누를 때 공연과 함께 만든다.
+             회차는 event_id가 있어야 만들 수 있어서 저장 전에는 DB에 넣을 수 없다.
+             수정·삭제는 두지 않는다 — 잘못 담았으면 지우고 다시 담으면 되고, 세밀한 손질은
+             등록이 끝난 뒤 회차 관리 화면이 이어받는다 */
+          <View style={styles.pendingBlock}>
+            <View style={[styles.linkCard, { backgroundColor: theme.emptyCellBackground }]}>
+              <View style={styles.hiddenText}>
+                <Text style={[styles.hiddenTitle, { color: theme.text }]}>
+                  회차{pending.length > 0 ? ` · ${pending.length}개` : ''}
+                </Text>
+                <Text style={[styles.hiddenHint, { color: theme.textSecondary }]}>
+                  {pending.length > 0
+                    ? '등록할 때 함께 만들어져요.'
+                    : '회차를 넣으면 회차를 골라 파는 방식이 돼요. 나중에 회차 관리에서 넣어도 돼요.'}
+                </Text>
+              </View>
+              {pendingForm === null ? (
+                <SmallButton
+                  label="회차 추가"
+                  onPress={() =>
+                    setPendingForm({
+                      id: null,
+                      // 마지막으로 담은 회차의 다음 날 같은 시각·같은 정원.
+                      // 아직 하나도 없으면 위에 적은 시작일에서 시작한다.
+                      ...nextPendingDraft(pending, startDate),
+                    })
+                  }
+                  theme={theme}
+                />
+              ) : null}
+            </View>
+
+            {pending.map((schedule, index) => (
+              <View
+                key={schedule.startsAt.getTime()}
+                style={[styles.pendingRow, { borderColor: theme.dashedBorder }]}>
+                <Text style={[styles.pendingWhen, { color: theme.text }]}>
+                  {formatMonthDayWeekday(schedule.startsAt)} {formatTime(schedule.startsAt)}
+                </Text>
+                <Text style={[styles.pendingMeta, { color: theme.textSecondary }]}>
+                  정원 {schedule.capacity.toLocaleString('ko-KR')}
+                </Text>
+                <Pressable
+                  onPress={() => setPending((prev) => prev.filter((_, i) => i !== index))}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${formatMonthDayWeekday(schedule.startsAt)} 회차 빼기`}>
+                  <Ionicons name="close" size={16} color={theme.textSecondary} />
+                </Pressable>
+              </View>
+            ))}
+
+            {pendingForm !== null ? (
+              <ScheduleForm
+                form={pendingForm}
+                onChange={setPendingForm}
+                onSubmit={handleAddPending}
+                onCancel={() => setPendingForm(null)}
+                isBusy={isSaving}
+                theme={theme}
+                title="새 회차"
+                submitLabel="담기"
+              />
+            ) : null}
+          </View>
+        )}
 
         <Pressable
           style={[styles.saveButton, isSaving && styles.saveButtonDisabled]}
@@ -725,6 +867,28 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 12,
   },
+  // 등록 화면에서 담아둔 회차 목록
+  pendingBlock: {
+    gap: 8,
+  },
+  pendingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderBottomWidth: 0.5,
+  },
+  pendingWhen: {
+    flex: 1, // 시각이 길어도 정원과 빼기 버튼은 오른쪽에 붙여 둔다
+    fontFamily: Fonts.medium,
+    fontSize: 14,
+  },
+  pendingMeta: {
+    fontFamily: Fonts.regular,
+    fontSize: 12,
+  },
+
   // 회차 관리로 가는 줄. 내리기 카드와 같은 모양이되 오른쪽 끝에 화살표를 둔다
   linkCard: {
     flexDirection: 'row',

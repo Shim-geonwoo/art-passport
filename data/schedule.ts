@@ -102,6 +102,32 @@ export function parseDateKey(dateText: string, timeText: string): Date | null {
   return date;
 }
 
+// 입력칸에 친 글자를 'YYYY-MM-DD' / 'HH:MM' 모양으로 다듬는다. 숫자만 치면 구분자가 알아서 들어간다.
+//
+// 관리자는 날짜를 문서에서 옮겨 적는데, 그때 손이 치는 건 숫자뿐이다. '-'나 ':'를 직접 치게 하면
+// 자판을 오가야 하고(모바일 숫자판에는 없는 경우도 있다), 빠뜨리면 저장할 때가 되어서야 걸린다.
+//
+// 숫자가 아닌 글자는 전부 버린다. 그래서 붙여넣기('2026-08-14', '2026.08.14')도 같은 결과가 되고,
+// 지울 때 구분자가 다시 붙지 않는다 — 숫자가 그만큼 남아 있을 때만 넣기 때문이다.
+export function formatDateInput(text: string): string {
+  const digits = text.replace(/\D/g, '').slice(0, 8); // YYYYMMDD
+  if (digits.length <= 4) {
+    return digits;
+  }
+  if (digits.length <= 6) {
+    return `${digits.slice(0, 4)}-${digits.slice(4)}`;
+  }
+  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`;
+}
+
+export function formatTimeInput(text: string): string {
+  const digits = text.replace(/\D/g, '').slice(0, 4); // HHMM
+  if (digits.length <= 2) {
+    return digits;
+  }
+  return `${digits.slice(0, 2)}:${digits.slice(2)}`;
+}
+
 // 같은 날인가 (시각은 무시). 달력에서 "고른 날"을 표시할 때 쓴다.
 export function isSameDay(a: Date, b: Date): boolean {
   return (
