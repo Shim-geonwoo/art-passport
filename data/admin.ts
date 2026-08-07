@@ -10,6 +10,7 @@
 // 관리자가 아닌 사람이 이 함수를 불러 저장을 시도하면 서버가 거절한다.
 
 import { Genre } from '@/constants/colors';
+import { parseDateKey } from '@/data/schedule';
 import { supabase } from '@/lib/supabase';
 
 // 지금 로그인한 사람이 관리자인가.
@@ -76,7 +77,8 @@ function mapRow(row: AdminEventRow, now: Date): AdminEventItem {
 //
 // fetchEvents(data/events.ts)와 달리 is_hidden으로 거르지 않는다 — 숨긴 공연이야말로
 // 관리 화면에서 찾아 다시 올릴 수 있어야 하는 대상이다.
-// 회차는 개수만 세면 되므로 id와 시각만 받아온다(정원·판매수는 4단계 회차 화면에서 쓴다).
+// 회차는 개수만 세면 되므로 id와 시각만 받아온다.
+// (정원·판매수는 회차 화면이 fetchAdminSchedules로 따로 받아온다 — 목록에서는 쓰지 않는다)
 export async function fetchAdminEvents(now: Date = new Date()): Promise<AdminEventItem[]> {
   const { data, error } = await supabase
     .from('events')
@@ -176,7 +178,7 @@ function toRow(input: AdminEventInput) {
 // 새 공연을 만든다. 만들어진 id를 돌려준다 — 포스터를 올릴 때 경로에 필요하다.
 //
 // 새로 만든 공연은 곧바로 예매 탭에 뜨지 않는다(회차형이면 회차가 아직 없어서다).
-// 관리자 목록에서 '회차 없음' 뱃지로 그 상태를 알려주고, 4단계 회차 화면에서 채운다.
+// 관리자 목록에서 '회차 없음' 뱃지로 그 상태를 알려주고, 회차 화면(admin-schedules)에서 채운다.
 export async function createAdminEvent(input: AdminEventInput): Promise<string> {
   const { data, error } = await supabase.from('events').insert(toRow(input)).select('id').single();
   if (error) {
@@ -270,4 +272,138 @@ export async function removePoster(eventId: string): Promise<void> {
   if (updateError) {
     throw updateError;
   }
+}
+
+// ── 회차 (event_schedules) ────────────────────────────────
+//
+// 회차는 공연(회차형)에만 있다. 전시(기간형)는 회차 행이 아예 없고, 그 없음이 곧 기간형의
+// 정의다(20260729031500_event_schedules.sql). 그래서 아래 함수들은 공연에서만 쓴다.
+//
+// 여기가 3단계까지 비어 있던 구멍이다. 공연을 등록해도 회차가 없으면 create_booking이
+// '관람 회차를 선택해주세요'로 끊어서 예매 탭에 아예 뜨지 않는데, 그때까지 회차를 만들 방법이
+// 앱에 없었다(SQL Editor에서 직접 넣는 수밖에). 관리자 목록의 '회차 없음' 뱃지가 가리키던 곳이다.
+
+export type AdminScheduleItem = {
+  id: string;
+  startsAt: Date;
+  capacity: number;
+  soldCount: number; // 이 회차로 팔린 매수 (취소분 제외). 트리거가 유지한다
+};
+
+// 이 공연의 회차를 이른 순으로. (event_schedules_event_idx가 이 순서로 만들어져 있다)
+export async function fetchAdminSchedules(eventId: string): Promise<AdminScheduleItem[]> {
+  const { data, error } = await supabase
+    .from('event_schedules')
+    .select('id, starts_at, capacity, sold_count')
+    .eq('event_id', eventId)
+    .order('starts_at', { ascending: true });
+  if (error) {
+    throw error;
+  }
+  return (data ?? []).map((row) => ({
+    id: row.id as string,
+    startsAt: new Date(row.starts_at as string),
+    capacity: row.capacity as number,
+    soldCount: row.sold_count as number,
+  }));
+}
+
+// 화면이 채워 보내는 회차 값. 정원은 회차마다 따로다 —
+// 같은 뮤지컬이라도 8/14 저녁과 8/15 낮은 좌석이 별개라서다(20260729062524_schedule_capacity.sql).
+export type AdminScheduleInput = {
+  startsAt: Date;
+  capacity: number;
+};
+
+// sold_count는 여기서 건드리지 않는다. 그 값은 예매가 생기고 취소될 때마다 트리거가 처음부터
+// 다시 세어 채운다. 관리자가 손으로 적으면 실제 판매량과 어긋나고, 어긋난 값은 잔여석으로
+// 그대로 보인다.
+export async function createAdminSchedule(
+  eventId: string,
+  input: AdminScheduleInput
+): Promise<void> {
+  const { error } = await supabase.from('event_schedules').insert({
+    event_id: eventId,
+    starts_at: input.startsAt.toISOString(),
+    capacity: input.capacity,
+  });
+  if (error) {
+    throw error;
+  }
+}
+
+export async function updateAdminSchedule(id: string, input: AdminScheduleInput): Promise<void> {
+  const { error } = await supabase
+    .from('event_schedules')
+    .update({ starts_at: input.startsAt.toISOString(), capacity: input.capacity })
+    .eq('id', id);
+  if (error) {
+    throw error;
+  }
+}
+
+// 예매가 달린 회차는 지울 수 없다는 표시.
+//
+// 공연과 달리 회차는 삭제를 열어 뒀다 — 잘못 만든 회차를 없애는 일은 실제로 필요하다.
+// 다만 이미 판 표가 있으면 DB가 거절한다(bookings.schedule_id가 on delete restrict).
+// 여기서 중요한 건 **취소된 예매도 행은 그대로 남는다**는 점이다. 그래서 화면에 '판매 0'으로
+// 보이는 회차도 삭제가 막힐 수 있고, 이유를 말해주지 않으면 앱이 고장 난 것처럼 보인다.
+// 그 경우만 따로 구분해 던진다.
+export const SCHEDULE_IN_USE = 'SCHEDULE_IN_USE';
+
+export async function deleteAdminSchedule(id: string): Promise<void> {
+  const { error } = await supabase.from('event_schedules').delete().eq('id', id);
+  if (error) {
+    // 23503 = 외래키 위반. 이 표를 가리키는 bookings 행이 남아 있다는 뜻이다.
+    throw new Error(error.code === '23503' ? SCHEDULE_IN_USE : error.message);
+  }
+}
+
+// 화면이 들고 있는 입력 글자 그대로. 검사와 변환을 한곳에서 한다.
+export type AdminScheduleDraft = {
+  date: string; // 'YYYY-MM-DD'
+  time: string; // 'HH:MM'
+  capacity: string;
+};
+
+// 저장 전에 값을 검사한다. 순수 함수라 화면 없이 테스트할 수 있다(data/__tests__/admin.test.ts).
+//
+// siblings에는 같은 공연의 회차를 전부 넘긴다(편집 중인 자기 자신 포함 — 아래에서 걸러낸다).
+// editing은 편집 중인 회차, 새로 추가하는 중이면 null이다.
+export function validateScheduleDraft(
+  draft: AdminScheduleDraft,
+  siblings: AdminScheduleItem[],
+  editing: AdminScheduleItem | null
+): { input: AdminScheduleInput } | { error: string } {
+  const startsAt = parseDateKey(draft.date, draft.time);
+  if (!startsAt) {
+    return { error: '날짜와 시각을 2026-08-14 / 19:30 형식으로 입력해주세요.' };
+  }
+
+  if (draft.capacity.trim().length === 0) {
+    return { error: '정원을 입력해주세요.' };
+  }
+  const capacity = Number(draft.capacity);
+  if (!Number.isInteger(capacity) || capacity < 0) {
+    return { error: '정원은 0 이상의 숫자로 입력해주세요.' };
+  }
+
+  // 이미 판 매수보다 정원을 낮추면 그 회차는 정원을 넘긴 상태가 된다. DB는 이걸 막지 않는다
+  // (check 제약이 capacity >= 0만 본다). 넘긴 채로 두면 예매를 취소해도 한동안 자리가 안 열리고,
+  // 화면에는 잔여석이 음수로 나온다.
+  if (editing && capacity < editing.soldCount) {
+    return { error: `이미 ${editing.soldCount}매가 팔렸어요. 정원을 그보다 줄일 수는 없어요.` };
+  }
+
+  // 같은 시각 회차가 둘이면 예매 화면에 똑같이 생긴 줄이 두 개 뜬다. 고르는 사람은 둘이 뭐가
+  // 다른지 알 수 없고, 좌석은 따로 세어진다. DB에 이걸 막는 제약이 없어서 여기서 본다
+  // (대부분 저장을 두 번 눌렀거나 날짜만 고치고 시각을 안 고친 경우다).
+  const duplicated = siblings.some(
+    (s) => s.id !== editing?.id && s.startsAt.getTime() === startsAt.getTime()
+  );
+  if (duplicated) {
+    return { error: '같은 시각의 회차가 이미 있어요.' };
+  }
+
+  return { input: { startsAt, capacity } };
 }

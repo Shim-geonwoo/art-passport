@@ -66,6 +66,42 @@ export function toDateKey(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+// 'YYYY-MM-DD' + 'HH:MM' 글자를 Date로. toDateKey의 반대 방향이다.
+// 잘못 적힌 값은 null을 돌려주므로, 부르는 쪽에서 저장 전에 막을 수 있다.
+//
+// 왜 필요한가: 관리자 화면은 날짜를 달력이 아니라 글자로 받는다. 공연 일정은 보통 문서에서
+// 옮겨 적는 것이라 달력을 몇 달씩 넘기는 것보다 타이핑이 빠르다.
+// (예매하는 사람이 쓰는 화면은 반대라서 components/date-calendar.tsx를 쓴다 — 그쪽은 Date를
+//  그대로 들고 있어서 이 함수가 필요 없다)
+export function parseDateKey(dateText: string, timeText: string): Date | null {
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateText.trim());
+  const timeMatch = /^(\d{1,2}):(\d{2})$/.exec(timeText.trim());
+  if (!dateMatch || !timeMatch) {
+    return null;
+  }
+
+  const [, year, month, day] = dateMatch;
+  const [, hour, minute] = timeMatch;
+  if (Number(hour) > 23 || Number(minute) > 59) {
+    return null;
+  }
+
+  const date = new Date(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    0,
+    0
+  );
+  // '2026-02-31' 같은 값은 Date가 3월로 넘겨버리므로, 되돌려 비교해서 걸러낸다
+  if (date.getMonth() !== Number(month) - 1 || date.getDate() !== Number(day)) {
+    return null;
+  }
+  return date;
+}
+
 // 같은 날인가 (시각은 무시). 달력에서 "고른 날"을 표시할 때 쓴다.
 export function isSameDay(a: Date, b: Date): boolean {
   return (

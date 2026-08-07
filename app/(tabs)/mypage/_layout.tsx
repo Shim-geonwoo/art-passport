@@ -31,6 +31,8 @@ export default function MyPageStackLayout() {
       <Stack.Screen name="admin" />
       {/* 공연 편집. id를 주면 편집, 안 주면 새 공연 등록이 된다 */}
       <Stack.Screen name="admin-event" />
+      {/* 회차 관리. 공연 편집에서 들어간다(회차형 공연만 — 전시는 회차가 없다) */}
+      <Stack.Screen name="admin-schedules" />
     </Stack>
   );
 }

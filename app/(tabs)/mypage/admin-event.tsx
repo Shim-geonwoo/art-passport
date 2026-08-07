@@ -11,7 +11,7 @@
 
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as ImagePicker from 'expo-image-picker';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -37,12 +37,13 @@ import {
   AdminEventItem,
   createAdminEvent,
   fetchAdminEvent,
+  fetchAdminSchedules,
   removePoster,
   setEventHidden,
   updateAdminEvent,
   uploadPoster,
 } from '@/data/admin';
-import { toDateKey } from '@/data/schedule';
+import { parseDateKey, toDateKey } from '@/data/schedule';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 const GENRES: Genre[] = ['전시', '클래식·무용', '콘서트', '연극', '뮤지컬'];
@@ -57,24 +58,10 @@ function notify(title: string, message: string) {
   }
 }
 
-// 'YYYY-MM-DD' 글자를 Date로. 잘못 적힌 값은 null로 돌려서 저장 전에 막는다.
-//
-// 날짜 선택 UI(달력)를 쓰지 않고 글자로 받는 이유: 관리자가 쓰는 화면이고, 공연 일정은
-// 보통 문서에서 옮겨 적는다. 달력을 몇 달씩 넘기는 것보다 타이핑이 빠르다.
-// (예매하는 사람이 쓰는 화면은 반대라서 components/date-calendar.tsx를 쓴다)
-function parseDateKey(text: string): Date | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text.trim());
-  if (!match) {
-    return null;
-  }
-  const [, year, month, day] = match;
-  const date = new Date(Number(year), Number(month) - 1, Number(day), 19, 0, 0, 0);
-  // '2026-02-31' 같은 값은 Date가 3월로 넘겨버리므로, 되돌려 비교해서 걸러낸다
-  if (date.getMonth() !== Number(month) - 1 || date.getDate() !== Number(day)) {
-    return null;
-  }
-  return date;
-}
+// 이 화면은 날짜만 받고 시각은 안 받는다. events.show_at은 "며칠부터 하는 공연인가"를 나타내고,
+// 실제 관람 시각은 회차(event_schedules)가 들고 있기 때문이다.
+// 그래도 timestamp 칸이라 시각이 필요해서, 저녁 공연이 가장 흔한 점을 따라 19:00으로 채운다.
+const DEFAULT_HOUR = '19:00';
 
 export default function AdminEventEditScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
@@ -102,6 +89,12 @@ export default function AdminEventEditScreen() {
   const [description, setDescription] = useState('');
   const [posterUrl, setPosterUrl] = useState<string | null>(null);
   const [isHidden, setIsHidden] = useState(false);
+
+  // 회차 수는 아래 loaded에도 들어 있지만 따로 들고 있는다.
+  // 회차 화면에서 회차를 추가하고 돌아오면 loaded는 옛날 값이라, 방금 만든 회차가 없는 것처럼
+  // 보인다. 그렇다고 돌아올 때마다 공연 전체를 다시 불러오면 고치던 입력칸이 되돌아간다 —
+  // 그래서 되돌아가도 되는 이 값만 따로 다시 센다.
+  const [scheduleCount, setScheduleCount] = useState<number | null>(null);
 
   // 기존 공연이면 값을 불러와 칸을 채운다
   useEffect(() => {
@@ -140,6 +133,20 @@ export default function AdminEventEditScreen() {
     };
   }, [id]);
 
+  // 회차 화면에 다녀올 때마다 회차 수를 다시 센다.
+  useFocusEffect(
+    useCallback(() => {
+      if (!id) {
+        return;
+      }
+      fetchAdminSchedules(id)
+        .then((schedules) => setScheduleCount(schedules.length))
+        .catch(() => {
+          // 못 세면 개수를 안 보여줄 뿐이다. 이것 때문에 편집 화면을 막을 이유는 없다.
+        });
+    }, [id])
+  );
+
   // 저장 전에 값을 검사해서, 문제가 있으면 무엇이 문제인지 돌려준다.
   // 서버도 같은 것을 막지만(가격 음수 등 제약), 저장을 눌러야 알게 되는 건 헛걸음이다.
   function validate(): { input: AdminEventInput } | { error: string } {
@@ -155,7 +162,7 @@ export default function AdminEventEditScreen() {
       return { error: '가격은 0 이상의 숫자로 입력해주세요.' };
     }
 
-    const showAt = parseDateKey(startDate);
+    const showAt = parseDateKey(startDate, DEFAULT_HOUR);
     if (!showAt) {
       return { error: '시작일을 2026-08-14 형식으로 입력해주세요.' };
     }
@@ -163,7 +170,7 @@ export default function AdminEventEditScreen() {
     // 종료일은 비워둘 수 있다(= 공연). 적었다면 형식과 순서를 본다.
     let showEndAt: Date | null = null;
     if (endDate.trim().length > 0) {
-      showEndAt = parseDateKey(endDate);
+      showEndAt = parseDateKey(endDate, DEFAULT_HOUR);
       if (!showEndAt) {
         return { error: '종료일을 2026-09-30 형식으로 입력해주세요.' };
       }
@@ -465,12 +472,26 @@ export default function AdminEventEditScreen() {
           </Text>
         </Pressable>
 
-        {/* 회차 관리는 4단계에서 붙인다. 지금은 왜 여기 없는지만 알려준다 */}
+        {/* 회차 관리로 가는 입구. 저장 버튼 아래에 두는 건 순서를 뜻한다 —
+            여기서 화면을 옮기면 아직 저장 안 한 입력이 사라진다.
+            전시는 회차가 없어서 이 줄 자체를 두지 않는다. 새 공연은 아직 id가 없어 갈 곳이 없다 */}
         {!isNew && !isExhibition ? (
-          <Text style={[styles.hint, { color: theme.textSecondary }]}>
-            회차{loaded ? ` ${loaded.scheduleCount}개` : ''} · 회차 추가·정원 수정은 다음 단계에서
-            붙습니다.
-          </Text>
+          <Pressable
+            style={[styles.linkCard, { backgroundColor: theme.emptyCellBackground }]}
+            onPress={() => router.push({ pathname: '/mypage/admin-schedules', params: { id } })}
+            accessibilityRole="button">
+            <View style={styles.hiddenText}>
+              <Text style={[styles.hiddenTitle, { color: theme.text }]}>
+                회차 관리{scheduleCount === null ? '' : ` · ${scheduleCount}개`}
+              </Text>
+              <Text style={[styles.hiddenHint, { color: theme.textSecondary }]}>
+                {scheduleCount === 0
+                  ? '회차가 없어서 예매 탭에 안 보여요. 회차를 추가해주세요.'
+                  : '회차 날짜·시각과 정원을 여기서 고쳐요. 저장하지 않은 내용은 사라져요.'}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
+          </Pressable>
         ) : null}
       </ScrollView>
     </SafeAreaView>
@@ -657,6 +678,14 @@ const styles = StyleSheet.create({
 
   // 내리기/올리기
   hiddenCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 16,
+    padding: 12,
+  },
+  // 회차 관리로 가는 줄. 내리기 카드와 같은 모양이되 오른쪽 끝에 화살표를 둔다
+  linkCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
